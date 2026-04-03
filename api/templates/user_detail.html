@@ -81,7 +81,7 @@
             <form method="post" action="/users/{{ target_user.id }}/keys/{{ key.id }}/revoke"
                   hx-post="/users/{{ target_user.id }}/keys/{{ key.id }}/revoke" hx-target="#key-list" hx-swap="innerHTML"
                   hx-confirm="Revoke this key? SSH access using this key will be denied immediately.">
-              <button type="submit" class="outline secondary" style="margin:0;padding:0.3rem 0.6rem;font-size:0.85em">Revoke</button>
+              <button type="submit" class="outline secondary btn-sm">Revoke</button>
             </form>
           </td>
         </tr>

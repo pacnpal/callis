@@ -4,7 +4,7 @@
 <h2>Audit Log</h2>
 
 <form hx-get="/audit" hx-target="#audit-table-body" hx-swap="innerHTML" hx-push-url="true"
-      style="margin-bottom: 1rem;">
+      class="filter-form">
   <div class="grid">
     <div>
       <label for="action">Event Type</label>
@@ -67,11 +67,11 @@
 </figure>
 
 {% if total_pages > 1 %}
-<nav aria-label="Pagination" style="display: flex; justify-content: center; gap: 0.5rem;">
+<nav aria-label="Pagination" class="pagination">
   {% if page > 1 %}
     <a href="/audit?page={{ page - 1 }}&action={{ filter_action }}&actor={{ filter_actor }}&date_from={{ filter_date_from }}&date_to={{ filter_date_to }}" role="button" class="outline">&laquo; Prev</a>
   {% endif %}
-  <span style="padding: 0.5rem;">Page {{ page }} of {{ total_pages }} ({{ total }} entries)</span>
+  <span class="pagination-info">Page {{ page }} of {{ total_pages }} ({{ total }} entries)</span>
   {% if page < total_pages %}
     <a href="/audit?page={{ page + 1 }}&action={{ filter_action }}&actor={{ filter_actor }}&date_from={{ filter_date_from }}&date_to={{ filter_date_to }}" role="button" class="outline">Next &raquo;</a>
   {% endif %}

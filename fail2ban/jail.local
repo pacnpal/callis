@@ -9,7 +9,7 @@ bantime = 86400
 
 [recidive]
 enabled = true
-logpath = /var/log/callis-sshd/fail2ban.log
+logpath = /var/log/fail2ban.log
 banaction = %(banaction_allports)s
 maxretry = 3
 findtime = 86400

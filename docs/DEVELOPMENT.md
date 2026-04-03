@@ -119,7 +119,7 @@ Always commit both `pyproject.toml` and `uv.lock`.
 
 - Python: follow PEP 8. Use type hints everywhere.
 - Templates: Jinja2, 2-space indent, semantic HTML.
-- No inline styles in templates. All styling via Pico CSS classes or `static/style.css`.
+- No inline styles in templates. All styling via Pico CSS classes or `static/style.css`. CSP `style-src` does not allow `'unsafe-inline'`.
 - No inline JavaScript. Dialog open/close is handled by `static/app.js` using `data-dialog-open` and `data-dialog-close` attributes. All other interactivity via htmx.
 
 ---
