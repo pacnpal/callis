@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Audit Log - Callis{% endblock %}
+{% block content %}
+<h2>Audit Log</h2>
+
+<form hx-get="/audit" hx-target="#audit-table-body" hx-swap="innerHTML" hx-push-url="true"
+      style="margin-bottom: 1rem;">
+  <div class="grid">
+    <div>
+      <label for="action">Event Type</label>
+      <select id="action" name="action">
+        <option value="">All Events</option>
+        {% for a in actions %}
+          <option value="{{ a }}" {% if filter_action == a %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="actor">User</label>
+      <select id="actor" name="actor">
+        <option value="">All Users</option>
+        {% for u in all_users %}
+          <option value="{{ u.id }}" {% if filter_actor == u.id %}selected{% endif %}>{{ u.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="date_from">From</label>
+      <input type="date" id="date_from" name="date_from" value="{{ filter_date_from }}">
+    </div>
+    <div>
+      <label for="date_to">To</label>
+      <input type="date" id="date_to" name="date_to" value="{{ filter_date_to }}">
+    </div>
+  </div>
+  <button type="submit" class="outline">Filter</button>
+</form>
+
+<figure>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Action</th>
+        <th>Actor</th>
+        <th>Target</th>
+        <th>Source IP</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody id="audit-table-body">
+      {% for entry in entries %}
+      <tr>
+        <td class="text-small">{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td><span class="badge">{{ entry.action.value }}</span></td>
+        <td>{{ entry.actor.username if entry.actor else "system" }}</td>
+        <td class="text-small">{{ entry.target_type }}{% if entry.target_id %}:{{ entry.target_id[:8] }}{% endif %}</td>
+        <td class="text-small"><code>{{ entry.source_ip or "" }}</code></td>
+        <td class="text-small text-muted">{{ entry.detail | tojson if entry.detail else "" }}</td>
+      </tr>
+      {% endfor %}
+      {% if not entries %}
+      <tr><td colspan="6" class="text-muted">No audit entries found.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</figure>
+
+{% if total_pages > 1 %}
+<nav aria-label="Pagination" style="display: flex; justify-content: center; gap: 0.5rem;">
+  {% if page > 1 %}
+    <a href="/audit?page={{ page - 1 }}&action={{ filter_action }}&actor={{ filter_actor }}&date_from={{ filter_date_from }}&date_to={{ filter_date_to }}" role="button" class="outline">&laquo; Prev</a>
+  {% endif %}
+  <span style="padding: 0.5rem;">Page {{ page }} of {{ total_pages }} ({{ total }} entries)</span>
+  {% if page < total_pages %}
+    <a href="/audit?page={{ page + 1 }}&action={{ filter_action }}&actor={{ filter_actor }}&date_from={{ filter_date_from }}&date_to={{ filter_date_to }}" role="button" class="outline">Next &raquo;</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,34 @@
+<tr id="user-row-{{ row_user.id }}">
+  <td><a href="/users/{{ row_user.id }}">{{ row_user.username }}</a></td>
+  <td>{{ row_user.display_name }}</td>
+  <td><span class="badge badge-{{ row_user.role.value }}">{{ row_user.role.value }}</span></td>
+  <td>
+    {% if row_user.is_active %}
+      <span class="badge badge-active">Active</span>
+    {% else %}
+      <span class="badge badge-inactive">Inactive</span>
+    {% endif %}
+  </td>
+  <td>{{ key_count }}</td>
+  <td class="text-small">{{ row_user.created_at.strftime('%Y-%m-%d') }}</td>
+  <td class="actions">
+    {% if row_user.id != user.id %}
+      {% if row_user.is_active %}
+        <form method="post" action="/users/{{ row_user.id }}/deactivate"
+              hx-post="/users/{{ row_user.id }}/deactivate" hx-target="#user-row-{{ row_user.id }}" hx-swap="outerHTML">
+          <button type="submit" class="outline secondary">Deactivate</button>
+        </form>
+      {% else %}
+        <form method="post" action="/users/{{ row_user.id }}/activate"
+              hx-post="/users/{{ row_user.id }}/activate" hx-target="#user-row-{{ row_user.id }}" hx-swap="outerHTML">
+          <button type="submit" class="outline">Activate</button>
+        </form>
+      {% endif %}
+      <button class="outline contrast"
+              hx-delete="/users/{{ row_user.id }}" hx-target="#user-row-{{ row_user.id }}" hx-swap="outerHTML"
+              hx-confirm="Delete user {{ row_user.username }}? This cannot be undone.">Delete</button>
+    {% else %}
+      <span class="text-muted text-small">(you)</span>
+    {% endif %}
+  </td>
+</tr>

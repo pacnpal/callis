@@ -1,0 +1,341 @@
+import logging
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from core import get_db, get_settings, hash_password, parse_ssh_public_key, write_audit_log
+from dependencies import require_role, require_totp_complete
+from models import AuditAction, SSHKey, User, UserRole
+
+logger = logging.getLogger("callis")
+router = APIRouter()
+templates = Jinja2Templates(directory="templates")
+
+
+@router.get("/users")
+async def user_list(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    result = await db.execute(
+        select(User).order_by(User.created_at.desc())
+    )
+    users = result.scalars().all()
+
+    # Get key counts
+    key_counts = {}
+    for u in users:
+        count_result = await db.execute(
+            select(func.count()).where(SSHKey.user_id == u.id, SSHKey.is_active == True)
+        )
+        key_counts[u.id] = count_result.scalar()
+
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            "partials/user_row.html",
+            {"request": request, "users": users, "key_counts": key_counts, "current_user": user},
+        )
+
+    return templates.TemplateResponse(
+        "users.html",
+        {"request": request, "users": users, "key_counts": key_counts, "user": user},
+    )
+
+
+@router.get("/users/{user_id}")
+async def user_detail(
+    request: Request,
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_totp_complete),
+):
+    # Admin can view any user; non-admin can only view own profile
+    if user.role != UserRole.admin and user.id != user_id:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    result = await db.execute(
+        select(User).options(selectinload(User.ssh_keys)).where(User.id == user_id)
+    )
+    target_user = result.scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    active_keys = [k for k in target_user.ssh_keys if k.is_active]
+
+    return templates.TemplateResponse(
+        "user_detail.html",
+        {
+            "request": request,
+            "target_user": target_user,
+            "keys": active_keys,
+            "user": user,
+        },
+    )
+
+
+@router.post("/users")
+async def create_user(
+    request: Request,
+    username: str = Form(...),
+    display_name: str = Form(""),
+    email: str = Form(""),
+    password: str = Form(...),
+    role: str = Form("readonly"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    # Check duplicate username
+    existing = await db.execute(select(User).where(User.username == username))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Username already exists")
+
+    new_user = User(
+        username=username,
+        display_name=display_name or username,
+        email=email or None,
+        hashed_password=hash_password(password),
+        role=UserRole(role),
+    )
+    db.add(new_user)
+    await db.flush()
+
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.USER_CREATED,
+        target_type="user",
+        target_id=new_user.id,
+        source_ip=request.client.host if request.client else None,
+        detail={"username": username, "role": role},
+    )
+
+    if request.headers.get("HX-Request"):
+        return RedirectResponse(url="/users", status_code=303)
+    return RedirectResponse(url="/users", status_code=303)
+
+
+@router.post("/users/{user_id}/deactivate")
+async def deactivate_user(
+    request: Request,
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target.is_active = False
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.USER_DEACTIVATED,
+        target_type="user",
+        target_id=user_id,
+        source_ip=request.client.host if request.client else None,
+        detail={"username": target.username},
+    )
+
+    if request.headers.get("HX-Request"):
+        key_count_result = await db.execute(
+            select(func.count()).where(SSHKey.user_id == target.id, SSHKey.is_active == True)
+        )
+        key_count = key_count_result.scalar()
+        return templates.TemplateResponse(
+            "partials/user_row.html",
+            {"request": request, "row_user": target, "key_count": key_count, "user": user},
+        )
+    return RedirectResponse(url="/users", status_code=303)
+
+
+@router.post("/users/{user_id}/activate")
+async def activate_user(
+    request: Request,
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target.is_active = True
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.USER_ACTIVATED,
+        target_type="user",
+        target_id=user_id,
+        source_ip=request.client.host if request.client else None,
+        detail={"username": target.username},
+    )
+
+    if request.headers.get("HX-Request"):
+        key_count_result = await db.execute(
+            select(func.count()).where(SSHKey.user_id == target.id, SSHKey.is_active == True)
+        )
+        key_count = key_count_result.scalar()
+        return templates.TemplateResponse(
+            "partials/user_row.html",
+            {"request": request, "row_user": target, "key_count": key_count, "user": user},
+        )
+    return RedirectResponse(url="/users", status_code=303)
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    request: Request,
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+):
+    if user.id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    username = target.username
+    await db.delete(target)
+
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.USER_DELETED,
+        target_type="user",
+        target_id=user_id,
+        source_ip=request.client.host if request.client else None,
+        detail={"username": username},
+    )
+
+    if request.headers.get("HX-Request"):
+        return HTMLResponse("")
+    return RedirectResponse(url="/users", status_code=303)
+
+
+@router.post("/users/{user_id}/keys")
+async def upload_key(
+    request: Request,
+    user_id: str,
+    label: str = Form(...),
+    public_key: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_totp_complete),
+):
+    # Admin can upload for any user; others only for themselves
+    if user.role != UserRole.admin and user.id != user_id:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    settings = get_settings()
+
+    # Check key limit
+    count_result = await db.execute(
+        select(func.count()).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+    )
+    current_count = count_result.scalar()
+    if current_count >= settings.MAX_KEYS_PER_USER:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {settings.MAX_KEYS_PER_USER} keys per user",
+        )
+
+    # Validate and parse the key
+    try:
+        key_info = parse_ssh_public_key(public_key)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Check for duplicate fingerprint
+    dup_result = await db.execute(
+        select(SSHKey).where(
+            SSHKey.user_id == user_id,
+            SSHKey.fingerprint == key_info["fingerprint"],
+            SSHKey.is_active == True,
+        )
+    )
+    if dup_result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="This key is already registered")
+
+    new_key = SSHKey(
+        user_id=user_id,
+        label=label,
+        public_key_text=key_info["public_key_text"],
+        fingerprint=key_info["fingerprint"],
+        key_type=key_info["key_type"],
+    )
+    db.add(new_key)
+    await db.flush()
+
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.KEY_ADDED,
+        target_type="key",
+        target_id=new_key.id,
+        source_ip=request.client.host if request.client else None,
+        detail={"fingerprint": key_info["fingerprint"], "key_type": key_info["key_type"], "label": label},
+    )
+
+    if request.headers.get("HX-Request"):
+        # Return updated key list partial
+        result = await db.execute(
+            select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+        )
+        keys = result.scalars().all()
+        return templates.TemplateResponse(
+            "partials/key_list.html",
+            {"request": request, "keys": keys, "target_user_id": user_id, "user": user},
+        )
+    return RedirectResponse(url=f"/users/{user_id}", status_code=303)
+
+
+@router.post("/users/{user_id}/keys/{key_id}/revoke")
+async def revoke_key(
+    request: Request,
+    user_id: str,
+    key_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_totp_complete),
+):
+    # Admin can revoke any key; key owner can revoke own
+    if user.role != UserRole.admin and user.id != user_id:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    result = await db.execute(
+        select(SSHKey).where(SSHKey.id == key_id, SSHKey.user_id == user_id)
+    )
+    key = result.scalar_one_or_none()
+    if not key:
+        raise HTTPException(status_code=404, detail="Key not found")
+
+    key.is_active = False
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.KEY_REVOKED,
+        target_type="key",
+        target_id=key_id,
+        source_ip=request.client.host if request.client else None,
+        detail={"fingerprint": key.fingerprint, "label": key.label},
+    )
+
+    if request.headers.get("HX-Request"):
+        keys_result = await db.execute(
+            select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+        )
+        keys = keys_result.scalars().all()
+        return templates.TemplateResponse(
+            "partials/key_list.html",
+            {"request": request, "keys": keys, "target_user_id": user_id, "user": user},
+        )
+    return RedirectResponse(url=f"/users/{user_id}", status_code=303)

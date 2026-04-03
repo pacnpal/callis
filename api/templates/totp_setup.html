@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}TOTP Setup - Callis{% endblock %}
+{% block content %}
+<article style="max-width: 500px; margin: 2rem auto;">
+  <header>
+    <h2>Set Up Two-Factor Authentication</h2>
+    <p>Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code to confirm.</p>
+  </header>
+
+  {% if error %}
+    <div class="flash flash-error" role="alert">{{ error }}</div>
+  {% endif %}
+
+  <div style="text-align: center; margin: 1.5rem 0;">
+    <img src="data:image/png;base64,{{ qr_code }}" alt="TOTP QR Code" style="max-width: 250px;">
+  </div>
+
+  <details>
+    <summary>Manual entry</summary>
+    <p>If you cannot scan the QR code, enter this secret manually:</p>
+    <pre style="word-break: break-all; text-align: center; font-size: 1.1em; letter-spacing: 0.1em;">{{ totp_secret }}</pre>
+  </details>
+
+  <form method="post" action="/totp/verify" style="margin-top: 1.5rem;">
+    <label for="totp_code">Enter 6-digit code from your authenticator</label>
+    <input type="text" id="totp_code" name="totp_code" required autocomplete="one-time-code"
+           inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autofocus
+           placeholder="000000">
+    <button type="submit">Verify & Enable 2FA</button>
+  </form>
+</article>
+{% endblock %}

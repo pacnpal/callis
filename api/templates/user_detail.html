@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ target_user.display_name }} - Callis{% endblock %}
+{% block content %}
+<h2>{{ target_user.display_name }}</h2>
+
+<div class="grid">
+  <div>
+    <dl>
+      <dt>Username</dt>
+      <dd>{{ target_user.username }}</dd>
+      <dt>Email</dt>
+      <dd>{{ target_user.email or "Not set" }}</dd>
+      <dt>Role</dt>
+      <dd><span class="badge badge-{{ target_user.role.value }}">{{ target_user.role.value }}</span></dd>
+    </dl>
+  </div>
+  <div>
+    <dl>
+      <dt>Status</dt>
+      <dd>
+        {% if target_user.is_active %}
+          <span class="badge badge-active">Active</span>
+        {% else %}
+          <span class="badge badge-inactive">Inactive</span>
+        {% endif %}
+      </dd>
+      <dt>TOTP</dt>
+      <dd>{{ "Enrolled" if target_user.totp_enrolled else "Not enrolled" }}</dd>
+      <dt>Created</dt>
+      <dd>{{ target_user.created_at.strftime('%Y-%m-%d %H:%M') }}</dd>
+      <dt>Last Login</dt>
+      <dd>{{ target_user.last_login_at.strftime('%Y-%m-%d %H:%M') if target_user.last_login_at else "Never" }}</dd>
+    </dl>
+  </div>
+</div>
+
+<hr>
+
+<div style="display: flex; justify-content: space-between; align-items: center;">
+  <h3>SSH Keys</h3>
+</div>
+
+<form method="post" action="/users/{{ target_user.id }}/keys"
+      hx-post="/users/{{ target_user.id }}/keys" hx-target="#key-list" hx-swap="innerHTML"
+      style="margin-bottom: 1.5rem;">
+  <div class="grid">
+    <div>
+      <label for="label">Key Label</label>
+      <input type="text" id="label" name="label" required placeholder="e.g. Work Laptop">
+    </div>
+  </div>
+  <label for="public_key">Public Key</label>
+  <textarea id="public_key" name="public_key" required rows="3"
+            placeholder="ssh-ed25519 AAAA... comment"></textarea>
+  <button type="submit">Upload Key</button>
+</form>
+
+<div id="key-list">
+  {% if keys %}
+  <figure>
+    <table>
+      <thead>
+        <tr>
+          <th>Label</th>
+          <th>Type</th>
+          <th>Fingerprint</th>
+          <th>Added</th>
+          <th>Last Used</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for key in keys %}
+        <tr>
+          <td>{{ key.label }}</td>
+          <td><code>{{ key.key_type }}</code></td>
+          <td><code class="text-small">{{ key.fingerprint }}</code></td>
+          <td class="text-small">{{ key.created_at.strftime('%Y-%m-%d') }}</td>
+          <td class="text-small">{{ key.last_used_at.strftime('%Y-%m-%d %H:%M') if key.last_used_at else "Never" }}</td>
+          <td>
+            <form method="post" action="/users/{{ target_user.id }}/keys/{{ key.id }}/revoke"
+                  hx-post="/users/{{ target_user.id }}/keys/{{ key.id }}/revoke" hx-target="#key-list" hx-swap="innerHTML"
+                  hx-confirm="Revoke this key? SSH access using this key will be denied immediately.">
+              <button type="submit" class="outline secondary" style="margin:0;padding:0.3rem 0.6rem;font-size:0.85em">Revoke</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </figure>
+  {% else %}
+  <p class="text-muted">No active SSH keys. Upload one above to enable SSH access.</p>
+  {% endif %}
+</div>
+{% endblock %}
