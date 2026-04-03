@@ -264,9 +264,9 @@ def _check_rsa_key_size(key_data: bytes, min_bits: int) -> None:
     n_bytes = key_data[offset : offset + n_len]
 
     # Key size in bits (strip leading zero byte if present)
-    if n_bytes[0] == 0:
+    if n_bytes and n_bytes[0] == 0:
         n_bytes = n_bytes[1:]
-    key_bits = len(n_bytes) * 8
+    key_bits = int.from_bytes(n_bytes, "big").bit_length()
 
     if key_bits < min_bits:
         raise ValueError(f"RSA key is {key_bits} bits, minimum {min_bits} required")
