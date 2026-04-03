@@ -3,6 +3,7 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -133,8 +134,7 @@ async def dashboard(request: Request, db=None):
         recent_audit = audit_result.scalars().all()
 
         # SSH host for config snippet
-        base = settings.BASE_URL
-        ssh_host = base.replace("https://", "").replace("http://", "").split(":")[0]
+        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
 
         return templates.TemplateResponse(
             "dashboard.html",

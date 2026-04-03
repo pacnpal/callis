@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, time, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.templating import Jinja2Templates
@@ -45,6 +45,7 @@ async def audit_log(
     if date_from:
         try:
             dt = datetime.fromisoformat(date_from)
+            dt = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
             query = query.where(AuditLog.timestamp >= dt)
         except ValueError:
             pass
@@ -52,6 +53,9 @@ async def audit_log(
     if date_to:
         try:
             dt = datetime.fromisoformat(date_to)
+            dt = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+            # Include the entire day
+            dt = datetime.combine(dt.date(), time.max, tzinfo=timezone.utc)
             query = query.where(AuditLog.timestamp <= dt)
         except ValueError:
             pass

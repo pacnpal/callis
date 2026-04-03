@@ -75,7 +75,7 @@
             <pre class="ssh-config">Host {{ host.label | lower | replace(' ', '-') }}
     HostName {{ host.hostname }}
     Port {{ host.port }}
-    ProxyJump {{ user.username }}@{{ settings.BASE_URL | replace('https://', '') | replace('http://', '') | replace(':8080', '') }}:{{ settings.SSH_PORT }}</pre>
+    ProxyJump {{ user.username }}@{{ ssh_host }}:{{ settings.SSH_PORT }}</pre>
           </details>
         </td>
         {% if user.role.value == "admin" %}

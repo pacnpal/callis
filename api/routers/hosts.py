@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,10 +28,11 @@ async def host_list(
     )
     hosts = result.scalars().all()
     settings = get_settings()
+    ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
 
     return templates.TemplateResponse(
         "hosts.html",
-        {"request": request, "hosts": hosts, "user": user, "settings": settings},
+        {"request": request, "hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host},
     )
 
 
@@ -97,9 +99,10 @@ async def deactivate_host(
         )
         host = result.scalar_one()
         settings = get_settings()
+        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
         return templates.TemplateResponse(
             "partials/host_row.html",
-            {"request": request, "host": host, "user": user, "settings": settings},
+            {"request": request, "host": host, "user": user, "settings": settings, "ssh_host": ssh_host},
         )
     return RedirectResponse(url="/hosts", status_code=303)
 

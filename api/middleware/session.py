@@ -37,7 +37,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
                     "callis_session",
                     new_token,
                     httponly=True,
-                    secure=not settings.DEV_MODE,
+                    secure=settings.HTTPS_ENABLED,
                     samesite="strict",
                     path="/",
                 )

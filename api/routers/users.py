@@ -1,4 +1,5 @@
 import logging
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -11,6 +12,13 @@ from sqlalchemy.orm import selectinload
 from core import get_db, get_settings, hash_password, parse_ssh_public_key, write_audit_log
 from dependencies import require_role, require_totp_complete
 from models import AuditAction, SSHKey, User, UserRole
+
+_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+_RESERVED_USERNAMES = frozenset({
+    "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail",
+    "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats",
+    "nobody", "sshd", "admin", "guest", "operator", "test",
+})
 
 logger = logging.getLogger("callis")
 router = APIRouter()
@@ -28,18 +36,22 @@ async def user_list(
     )
     users = result.scalars().all()
 
-    # Get key counts
-    key_counts = {}
-    for u in users:
+    # Get key counts with a single aggregate query to avoid N+1
+    user_ids = [u.id for u in users]
+    key_counts = {uid: 0 for uid in user_ids}
+    if user_ids:
         count_result = await db.execute(
-            select(func.count()).where(SSHKey.user_id == u.id, SSHKey.is_active == True)
+            select(SSHKey.user_id, func.count())
+            .where(SSHKey.user_id.in_(user_ids), SSHKey.is_active == True)
+            .group_by(SSHKey.user_id)
         )
-        key_counts[u.id] = count_result.scalar()
+        for user_id, count in count_result.all():
+            key_counts[user_id] = count
 
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
-            "partials/user_row.html",
-            {"request": request, "users": users, "key_counts": key_counts, "current_user": user},
+            "users.html",
+            {"request": request, "users": users, "key_counts": key_counts, "user": user},
         )
 
     return templates.TemplateResponse(
@@ -90,6 +102,22 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
+    # Server-side username validation
+    username = username.lower().strip()
+    if not _USERNAME_RE.match(username):
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be 1-32 lowercase alphanumeric characters, hyphens, or underscores, starting with a letter.",
+        )
+    if username in _RESERVED_USERNAMES:
+        raise HTTPException(status_code=400, detail=f"Username '{username}' is reserved")
+
+    # Validate role
+    try:
+        user_role = UserRole(role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid role '{role}'. Must be one of: admin, operator, readonly")
+
     # Check duplicate username
     existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
@@ -100,7 +128,7 @@ async def create_user(
         display_name=display_name or username,
         email=email or None,
         hashed_password=hash_password(password),
-        role=UserRole(role),
+        role=user_role,
     )
     db.add(new_user)
     await db.flush()

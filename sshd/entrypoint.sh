@@ -11,10 +11,15 @@ fi
 
 # Ensure correct permissions on host key
 chmod 600 "$HOST_KEY"
-chmod 644 "${HOST_KEY}.pub"
+if [ -f "${HOST_KEY}.pub" ]; then
+    chmod 644 "${HOST_KEY}.pub"
+else
+    ssh-keygen -y -f "$HOST_KEY" > "${HOST_KEY}.pub"
+    chmod 644 "${HOST_KEY}.pub"
+fi
 
 # Ensure log directory exists
 mkdir -p /var/log
 
 echo "Starting sshd..."
-exec /usr/sbin/sshd -D -e
+exec /usr/sbin/sshd -D -E /var/log/auth.log

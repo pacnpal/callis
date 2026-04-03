@@ -1,13 +1,13 @@
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from core import get_session_factory
-from models import SSHKey, User
+from models import Host, SSHKey, User, user_host_assignment
 
 logger = logging.getLogger("callis")
 
@@ -36,14 +36,27 @@ async def get_keys(username: str):
         if not keys:
             return PlainTextResponse("", status_code=200)
 
-        # Update last_used_at
-        now = datetime.now(timezone.utc)
-        for key in keys:
-            key.last_used_at = now
-        await db.commit()
+        # Get user's assigned hosts for permitopen enforcement
+        hosts_result = await db.execute(
+            select(Host)
+            .join(user_host_assignment)
+            .where(
+                user_host_assignment.c.user_id == user.id,
+                Host.is_active == True,
+            )
+        )
+        assigned_hosts = hosts_result.scalars().all()
 
-        # Return newline-separated public keys
-        key_texts = [k.public_key_text for k in keys]
+        # Build permitopen options from assigned hosts
+        if assigned_hosts:
+            permits = ",".join(
+                f'permitopen="{h.hostname}:{h.port}"' for h in assigned_hosts
+            )
+            key_texts = [f"{permits} {k.public_key_text}" for k in keys]
+        else:
+            # No assigned hosts — deny forwarding but still allow auth
+            key_texts = [f'permitopen="none:0" {k.public_key_text}' for k in keys]
+
         return PlainTextResponse("\n".join(key_texts) + "\n", status_code=200)
 
 

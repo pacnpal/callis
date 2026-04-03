@@ -33,6 +33,9 @@ router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 templates = Jinja2Templates(directory="templates")
 
+# Precomputed dummy hash for constant-time login checks (avoid hashing on every failed attempt)
+_DUMMY_HASH = hash_password("dummy-constant-time-check")
+
 
 @router.get("/login")
 async def login_page(request: Request):
@@ -58,8 +61,8 @@ async def login_submit(
     user = result.scalar_one_or_none()
 
     if not user or not user.is_active:
-        # Constant-time: hash a dummy password to prevent timing attacks
-        verify_password(password, hash_password("dummy-constant-time-check"))
+        # Constant-time: verify against precomputed dummy hash to prevent timing attacks
+        verify_password(password, _DUMMY_HASH)
         await write_audit_log(
             db,
             actor_id=None,
@@ -132,7 +135,7 @@ async def login_submit(
         "callis_session",
         token,
         httponly=True,
-        secure=not settings.DEV_MODE,
+        secure=settings.HTTPS_ENABLED,
         samesite="strict",
         path="/",
     )

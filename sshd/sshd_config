@@ -14,7 +14,7 @@ AllowTcpForwarding yes
 GatewayPorts no
 X11Forwarding no
 PermitTunnel no
-AllowAgentForwarding yes
+AllowAgentForwarding no
 PermitTTY no
 ForceCommand /usr/sbin/nologin
 MaxAuthTries 2
