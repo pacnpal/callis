@@ -16,7 +16,7 @@ X11Forwarding no
 PermitTunnel no
 AllowAgentForwarding no
 PermitTTY no
-ForceCommand /usr/sbin/nologin
+ForceCommand /sbin/nologin
 MaxAuthTries 2
 LoginGraceTime 15
 ClientAliveInterval 300

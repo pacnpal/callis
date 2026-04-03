@@ -1,6 +1,6 @@
 services:
   caddy:
-    image: caddy:latest
+    image: caddy:2.9
     profiles: ["caddy"]
     restart: unless-stopped
     ports:

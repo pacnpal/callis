@@ -26,7 +26,7 @@ services:
       - callis
 
   fail2ban:
-    image: crazymax/fail2ban:latest
+    image: crazymax/fail2ban:1.1.0
     restart: unless-stopped
     network_mode: host
     cap_add:

@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, write_audit_log
+from core import get_db
 from dependencies import require_role
 from models import AuditAction, AuditLog, User
 

@@ -90,8 +90,7 @@ app.include_router(audit.router)
 
 # Dashboard
 @app.get("/dashboard")
-async def dashboard(request: Request, db=None):
-    from dependencies import require_totp_complete
+async def dashboard(request: Request):
     from sqlalchemy.orm import selectinload
 
     user = getattr(request.state, "user", None)
@@ -178,17 +177,15 @@ async def generic_exception_handler(request: Request, exc: Exception):
 async def run_servers():
     settings = get_settings()
     log_level = settings.LOG_LEVEL.lower()
-    reload_enabled = settings.DEV_MODE
 
     public_config = uvicorn.Config(
-        "main:app",
+        app,
         host="0.0.0.0",
         port=8080,
         log_level=log_level,
-        reload=reload_enabled,
     )
     internal_config = uvicorn.Config(
-        "routers.internal:internal_app",
+        internal_app,
         host="0.0.0.0",
         port=8081,
         log_level=log_level,

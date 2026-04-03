@@ -185,7 +185,7 @@ ssh my-internal-server
 | `MAX_KEYS_PER_USER` | No | `5` | Maximum SSH keys per user |
 | `AUTH_MODE` | No | `local` | `local` or `oidc` |
 | `HTTPS_ENABLED` | No | `false` | Enable HSTS and Secure cookie flag |
-| `DEV_MODE` | No | `false` | Enable auto-reload, disable Secure cookies |
+| `DEV_MODE` | No | `false` | Enable development mode features (verbose SQL logging) |
 | `LOG_LEVEL` | No | `info` | Logging level |
 | `TZ` | No | `UTC` | Timezone |
 | `CALLIS_DOMAIN` | If Caddy | — | Domain for Caddy TLS (Mode C only) |

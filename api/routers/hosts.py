@@ -1,4 +1,5 @@
 import logging
+import re
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -9,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core import get_db, get_settings, write_audit_log
+
+_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 from dependencies import require_role, require_totp_complete
 from models import AuditAction, Host, User, UserRole, user_host_assignment
 
@@ -46,6 +49,13 @@ async def create_host(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
+    # Validate hostname (no quotes, commas, spaces — these would break permitopen options)
+    hostname = hostname.strip()
+    if not _HOSTNAME_RE.match(hostname) or len(hostname) > 255:
+        raise HTTPException(status_code=400, detail="Invalid hostname. Use alphanumeric characters, dots, hyphens, and underscores only.")
+    if not 1 <= port <= 65535:
+        raise HTTPException(status_code=400, detail="Port must be between 1 and 65535")
+
     new_host = Host(
         label=label,
         hostname=hostname,

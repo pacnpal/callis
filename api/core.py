@@ -130,7 +130,7 @@ def decode_jwt(token: str) -> dict | None:
             if idle > settings.SESSION_IDLE_TIMEOUT:
                 return None
         return payload
-    except JWTError:
+    except (JWTError, ValueError, TypeError):
         return None
 
 

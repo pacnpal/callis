@@ -29,7 +29,11 @@ class SessionMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # Refresh idle timeout by re-signing JWT with updated last_activity
-        if request.state.user and token:
+        # Skip if the response already sets/deletes the session cookie (e.g. login/logout)
+        has_session_cookie_change = any(
+            "callis_session" in h for h in response.headers.getlist("set-cookie")
+        )
+        if request.state.user and token and not has_session_cookie_change:
             new_token = refresh_jwt(token)
             if new_token:
                 settings = get_settings()

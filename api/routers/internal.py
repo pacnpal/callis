@@ -3,8 +3,6 @@ import logging
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from core import get_session_factory
 from models import Host, SSHKey, User, user_host_assignment
@@ -55,7 +53,7 @@ async def get_keys(username: str):
             key_texts = [f"{permits} {k.public_key_text}" for k in keys]
         else:
             # No assigned hosts — deny forwarding but still allow auth
-            key_texts = [f'permitopen="none:0" {k.public_key_text}' for k in keys]
+            key_texts = [f"no-port-forwarding {k.public_key_text}" for k in keys]
 
         return PlainTextResponse("\n".join(key_texts) + "\n", status_code=200)
 
