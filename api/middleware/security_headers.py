@@ -12,8 +12,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         csp = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; "
-            "style-src 'self' https://unpkg.com https://cdn.jsdelivr.net; "
+            "script-src 'self' https://unpkg.com https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; "
             "img-src 'self' data:; "
             "font-src 'self'; "
             "connect-src 'self'; "

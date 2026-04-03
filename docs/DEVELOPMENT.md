@@ -120,7 +120,7 @@ Always commit both `pyproject.toml` and `uv.lock`.
 - Python: follow PEP 8. Use type hints everywhere.
 - Templates: Jinja2, 2-space indent, semantic HTML.
 - No inline styles in templates. All styling via Pico CSS classes or `static/style.css`.
-- No JavaScript files. All interactivity via htmx attributes in templates. Exception: minimal inline `onclick` for `<dialog>` modal toggling, which has no declarative alternative.
+- No inline JavaScript. Dialog open/close is handled by `static/app.js` using `data-dialog-open` and `data-dialog-close` attributes. All other interactivity via htmx.
 
 ---
 

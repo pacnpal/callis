@@ -17,7 +17,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-SSH-03** — The SSH server MUST authenticate users via SSH public key only. Password authentication MUST be disabled.
 - **FR-SSH-04** — The SSH server MUST NOT provide an interactive shell to any user. It is a pure jump point.
 - **FR-SSH-05** — The SSH server MUST use `AuthorizedKeysCommand` to fetch active public keys from the API at connection time. This ensures key revocation is instant.
-- **FR-SSH-06** — The SSH server MUST support agent forwarding to allow users to authenticate to downstream hosts without storing private keys on the bastion.
+- **FR-SSH-06** — The SSH server MUST disable agent forwarding by default to limit blast radius if the bastion is compromised. Agent forwarding MAY be enabled per-user if required.
 - **FR-SSH-07** — The SSH server MUST log all connection attempts (accepted and rejected) with timestamp, username, source IP, and source port.
 - **FR-SSH-08** — The SSH server MUST only accept Ed25519 host keys. RSA, DSA, and ECDSA host keys MUST NOT be generated or accepted.
 - **FR-SSH-09** — SSH host keys MUST be generated on first run and persisted in a named Docker volume. They MUST NOT be regenerated on container restart.
@@ -58,7 +58,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-AUTH-01** — All web UI routes MUST require an authenticated session. The only unauthenticated routes are `/login` and `/health`.
 - **FR-AUTH-02** — Authentication MUST use username and password. Passwords MUST be hashed with bcrypt at cost factor ≥ 12.
 - **FR-AUTH-03** — TOTP (RFC 6238) 2FA MUST be mandatory for all users. A user MUST complete TOTP enrollment before accessing any other page.
-- **FR-AUTH-04** — TOTP enrollment MUST present a QR code and a backup code set on first login. The TOTP secret MUST be stored encrypted in the database.
+- **FR-AUTH-04** — TOTP enrollment MUST present a QR code and manual secret entry on first login. The TOTP secret MUST be stored encrypted in the database. Backup codes are a future enhancement.
 - **FR-AUTH-05** — Sessions MUST be stored as JWTs in an `httpOnly`, `Secure`, `SameSite=Strict` cookie. JWTs MUST NOT be returned in response bodies or stored in localStorage.
 - **FR-AUTH-06** — Sessions MUST expire after a configurable idle timeout (default: 30 minutes).
 - **FR-AUTH-07** — Sessions MUST have a configurable absolute maximum lifetime regardless of activity (default: 8 hours).
@@ -109,11 +109,11 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **NFR-SEC-05** — The Content Security Policy MUST disallow inline scripts and restrict script sources to the CDN allowlist (htmx, Pico CSS).
 - **NFR-SEC-06** — Stack traces and internal error details MUST NEVER be exposed to the browser. All errors MUST render a generic error page.
 - **NFR-SEC-07** — User IDs in URLs MUST use opaque UUIDs, not sequential integers.
-- **NFR-SEC-08** — Fail2ban MUST be included as an optional sidecar that watches sshd logs and bans IPs after 3 failed attempts within 10 minutes. Ban duration: 24 hours first offense, permanent after 3 bans.
+- **NFR-SEC-08** — Fail2ban MUST be included as an optional sidecar (opt-in via Compose profile) that watches sshd logs and bans IPs after 3 failed attempts within 10 minutes. Ban duration: 24 hours first offense, permanent after 3 offenses (recidive).
 
 ### 3.2 Usability
 
-- **NFR-USE-01** — The web UI MUST be usable without JavaScript disabled, degrading gracefully. htmx enhancements are progressive.
+- **NFR-USE-01** — The web UI SHOULD degrade gracefully without JavaScript where practical. Core read-only flows work without JS; admin actions (create user/host) require JS for dialog interaction.
 - **NFR-USE-02** — The web UI MUST be accessible on mobile screen sizes.
 - **NFR-USE-03** — The web UI MUST display the SSH client config snippet a user needs to connect through Callis, pre-filled with their username and the configured hostname.
 - **NFR-USE-04** — First-run setup MUST guide the admin through: setting admin password, completing TOTP enrollment, and adding a first host — before the system is considered ready.

@@ -247,7 +247,7 @@ Database tables are created automatically on startup. Back up your database befo
 - **Port 8081 is internal only.** It serves SSH authorized keys to the sshd container via the Docker network and is never exposed to the host.
 - **TOTP is mandatory.** Every user must enroll in 2FA before accessing any page.
 - **Audit log is append-only.** No API or UI can delete or modify audit entries.
-- **Constant-time auth.** Login uses constant-time comparison for both passwords and TOTP codes.
+- **Authentication checks are hardened.** Login applies secure password verification and enforces TOTP-based 2FA.
 - **sshd is hardened.** Ed25519 and RSA (4096+ bit) keys accepted, no passwords, no root login, no shell access, modern cipher suite.
 
 ---

@@ -93,16 +93,11 @@ async def login_submit(
             status_code=401,
         )
 
-    # If TOTP enrolled, verify code
+    # If TOTP enrolled, verify code (always run verify to maintain constant-time)
     if user.totp_enrolled:
-        if not totp_code:
-            return templates.TemplateResponse(
-                "login.html",
-                {"request": request, "error": error_msg},
-                status_code=401,
-            )
         secret = decrypt_totp_secret(user.totp_secret)
-        if not verify_totp(secret, totp_code):
+        totp_valid = verify_totp(secret, totp_code) if totp_code else False
+        if not totp_valid:
             await write_audit_log(
                 db,
                 actor_id=user.id,

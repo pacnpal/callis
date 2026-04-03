@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Hosts - Callis{% endblock %}
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center;">
+<div class="page-header">
   <h2>Jump Targets</h2>
   {% if user.role.value == "admin" %}
-  <button onclick="document.getElementById('add-host-dialog').showModal()">Add Host</button>
+  <button data-dialog-open="add-host-dialog">Add Host</button>
   {% endif %}
 </div>
 
@@ -12,7 +12,7 @@
 <dialog id="add-host-dialog">
   <article>
     <header>
-      <button aria-label="Close" rel="prev" onclick="document.getElementById('add-host-dialog').close()"></button>
+      <button aria-label="Close" rel="prev" data-dialog-close></button>
       <h3>Add Host</h3>
     </header>
     <form method="post" action="/hosts">
