@@ -56,6 +56,7 @@ async def login_submit(
 ):
     settings = get_settings()
     error_msg = "Invalid credentials"
+    username = username.lower().strip()
 
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
@@ -93,10 +94,11 @@ async def login_submit(
             status_code=401,
         )
 
-    # If TOTP enrolled, verify code (always run verify to maintain constant-time)
+    # If TOTP enrolled, verify code (always run decrypt+verify for constant-time)
     if user.totp_enrolled:
         secret = decrypt_totp_secret(user.totp_secret)
-        totp_valid = verify_totp(secret, totp_code) if totp_code else False
+        # Normalize empty code to a dummy value so verify_totp always runs
+        totp_valid = verify_totp(secret, totp_code if totp_code else "000000")
         if not totp_valid:
             await write_audit_log(
                 db,

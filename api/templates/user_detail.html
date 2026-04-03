@@ -36,13 +36,13 @@
 
 <hr>
 
-<div style="display: flex; justify-content: space-between; align-items: center;">
+<div class="page-header">
   <h3>SSH Keys</h3>
 </div>
 
 <form method="post" action="/users/{{ target_user.id }}/keys"
       hx-post="/users/{{ target_user.id }}/keys" hx-target="#key-list" hx-swap="innerHTML"
-      style="margin-bottom: 1.5rem;">
+      class="key-upload-form">
   <div class="grid">
     <div>
       <label for="label">Key Label</label>
