@@ -1,0 +1,47 @@
+:root {
+  --pico-font-size: 16px;
+}
+.flash {
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: var(--pico-border-radius);
+}
+.flash-error {
+  background: var(--pico-del-color);
+  color: #fff;
+}
+.flash-success {
+  background: var(--pico-ins-color);
+  color: #fff;
+}
+nav .brand {
+  font-weight: bold;
+}
+.badge {
+  display: inline-block;
+  padding: 0.15em 0.5em;
+  font-size: 0.8em;
+  border-radius: var(--pico-border-radius);
+  background: var(--pico-secondary-background);
+  color: var(--pico-secondary-inverse);
+}
+.badge-active { background: var(--pico-ins-color); color: #fff; }
+.badge-inactive { background: var(--pico-del-color); color: #fff; }
+.badge-admin { background: #7c3aed; color: #fff; }
+.badge-operator { background: #2563eb; color: #fff; }
+.badge-readonly { background: #6b7280; color: #fff; }
+.text-muted { color: var(--pico-muted-color); }
+.text-small { font-size: 0.85em; }
+pre.ssh-config {
+  background: var(--pico-code-background-color);
+  padding: 1rem;
+  border-radius: var(--pico-border-radius);
+  overflow-x: auto;
+  font-size: 0.85em;
+}
+.actions { display: flex; gap: 0.5rem; align-items: center; }
+.actions form { margin: 0; }
+.actions button { margin: 0; padding: 0.3rem 0.6rem; font-size: 0.85em; }
+table { font-size: 0.9em; }
+.nav-form { margin: 0; }
+.nav-btn { margin: 0; padding: 0.3rem 0.6rem; font-size: 0.85em; }

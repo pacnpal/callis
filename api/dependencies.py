@@ -1,5 +1,4 @@
 from fastapi import Depends, HTTPException, Request
-from starlette.responses import RedirectResponse
 
 from models import User, UserRole
 

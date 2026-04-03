@@ -10,10 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core import get_db, get_settings, write_audit_log
+from dependencies import require_role, require_totp_complete
+from models import AuditAction, Host, User, UserRole
 
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
-from dependencies import require_role, require_totp_complete
-from models import AuditAction, Host, User, UserRole, user_host_assignment
 
 logger = logging.getLogger("callis")
 router = APIRouter()

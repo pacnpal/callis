@@ -8,7 +8,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 
 ## Features
 
-- Hardened OpenSSH jump server (Ed25519 only, no passwords, no shell)
+- Hardened OpenSSH jump server (Ed25519 and RSA 4096+, no passwords, no shell)
 - Web UI built with FastAPI + Jinja2 + htmx — no build step, no Node.js
 - Per-user OS accounts with instant key revocation
 - Mandatory TOTP 2FA for all web UI users
@@ -248,7 +248,7 @@ Database tables are created automatically on startup. Back up your database befo
 - **TOTP is mandatory.** Every user must enroll in 2FA before accessing any page.
 - **Audit log is append-only.** No API or UI can delete or modify audit entries.
 - **Constant-time auth.** Login uses constant-time comparison for both passwords and TOTP codes.
-- **sshd is hardened.** Ed25519 only, no passwords, no root login, no shell access, modern cipher suite.
+- **sshd is hardened.** Ed25519 and RSA (4096+ bit) keys accepted, no passwords, no root login, no shell access, modern cipher suite.
 
 ---
 

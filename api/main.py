@@ -1,22 +1,20 @@
 import asyncio
 import logging
-import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
 from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import select, func
 
-from core import get_db, get_engine, get_session_factory, get_settings, hash_password, write_audit_log
+from core import get_engine, get_session_factory, get_settings, hash_password
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
-from models import AuditAction, AuditLog, Base, Host, SSHKey, User, UserRole
+from models import AuditLog, Base, Host, SSHKey, User, UserRole
 from routers import auth, users, hosts, audit
 from routers.internal import internal_app
 
@@ -75,6 +73,9 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Middleware (applied in reverse order — last added runs first)
 app.add_middleware(TOTPGuardMiddleware)
