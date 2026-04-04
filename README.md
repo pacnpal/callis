@@ -128,26 +128,89 @@ docker compose up -d
 
 Access via `http://<server-ip>:8080` (web) and `<server-ip>:2222` (SSH).
 
-### Mode B — Behind an Existing Reverse Proxy
+### Mode B — Behind a Reverse Proxy (Caddy, Nginx, Traefik, etc.)
 
-If you already have Nginx, Caddy, Traefik, etc. handling TLS:
+Callis serves plain HTTP on port 8080. TLS termination is handled by your reverse proxy — Callis does not manage certificates.
+
+**1. Set these in `.env`:**
 
 ```bash
-# In .env:
 BASE_URL=https://callis.example.com
 HTTPS_ENABLED=true
 ```
 
-Your reverse proxy config (example for Caddy):
+`HTTPS_ENABLED=true` enables HSTS headers and sets the `Secure` flag on session cookies (required when serving over HTTPS).
+
+**2. Point your reverse proxy at Callis port 8080:**
+
+<details>
+<summary>Caddy</summary>
 
 ```
 callis.example.com {
     reverse_proxy localhost:8080
 }
 ```
+Caddy handles TLS automatically via Let's Encrypt.
+</details>
 
-SSH port (2222) must be forwarded separately at the network/firewall level.
+<details>
+<summary>Nginx</summary>
 
+```nginx
+server {
+    listen 443 ssl;
+    server_name callis.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/callis.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/callis.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    server_name callis.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+</details>
+
+<details>
+<summary>Traefik (Docker labels)</summary>
+
+Add these labels to the `callis` service in `docker-compose.yml`:
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.callis.rule=Host(`callis.example.com`)"
+  - "traefik.http.routers.callis.entrypoints=websecure"
+  - "traefik.http.routers.callis.tls.certresolver=letsencrypt"
+  - "traefik.http.services.callis.loadbalancer.server.port=8080"
+```
+</details>
+
+**3. SSH port forwarding**
+
+The SSH jump port (default 2222) is **not** proxied — it must be forwarded at the network/firewall level:
+
+```bash
+# Example: iptables
+iptables -t nat -A PREROUTING -p tcp --dport 2222 -j REDIRECT --to-port 2222
+
+# Or simply expose it in docker-compose.yml (already the default):
+ports:
+  - "2222:22"
+```
+
+Users connect directly to the SSH port; only the web UI goes through the reverse proxy.
 
 ---
 
