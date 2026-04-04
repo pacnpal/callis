@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_settings, register_template_filters, write_audit_log
+from core import get_db, get_settings, register_template_filters, slugify, write_audit_log
 from dependencies import require_role, require_totp_complete
 from models import AuditAction, Host, User, UserRole
 
@@ -80,6 +80,16 @@ async def create_host(
         return await _form_error("Invalid hostname. Use alphanumeric characters, dots, hyphens, and underscores only.")
     if not 1 <= port <= 65535:
         return await _form_error("Port must be between 1 and 65535")
+
+    # Validate that no active host's label already slugifies to the same CLI tag
+    new_slug = slugify(label)
+    existing_result = await db.execute(select(Host).where(Host.is_active == True))
+    existing_hosts = existing_result.scalars().all()
+    if any(slugify(h.label) == new_slug for h in existing_hosts):
+        return await _form_error(
+            f"Another active host already uses the CLI tag '{new_slug}'. "
+            "Choose a label that produces a unique tag."
+        )
 
     new_host = Host(
         label=label,

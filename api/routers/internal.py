@@ -128,12 +128,17 @@ async def resolve_host(username: str, tag: str):
         )
         assigned_hosts = hosts_result.scalars().all()
 
-        # Find the host whose slugified label matches the tag
-        for host in assigned_hosts:
-            if slugify(host.label) == tag:
-                return PlainTextResponse(
-                    f"{host.hostname} {host.port}", status_code=200
-                )
+        # Find all hosts whose slugified label matches the tag
+        matching_hosts = [
+            host for host in assigned_hosts if slugify(host.label) == tag
+        ]
+
+        if len(matching_hosts) > 1:
+            return PlainTextResponse("ambiguous host tag", status_code=409)
+
+        if len(matching_hosts) == 1:
+            host = matching_hosts[0]
+            return PlainTextResponse(f"{host.hostname} {host.port}", status_code=200)
 
         return PlainTextResponse("", status_code=200)
 

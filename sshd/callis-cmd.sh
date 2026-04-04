@@ -8,13 +8,35 @@ CMD="${SSH_ORIGINAL_COMMAND:-}"
 API_HOST="${CALLIS_API_HOST:-localhost}"
 INTERNAL_SECRET="${CALLIS_INTERNAL_SECRET:-}"
 
+_curl_with_status() {
+    # Usage: _curl_with_status <url>
+    # Writes body to stdout, HTTP status code to $HTTP_CODE
+    TMPBODY=$(mktemp -t callis.XXXXXX) || { echo "ERR failed to create temp file" >&2; exit 1; }
+    trap 'rm -f "$TMPBODY"' EXIT INT TERM
+    HTTP_CODE=$(curl -s --max-time 5 \
+      -H "X-Internal-Secret: ${INTERNAL_SECRET}" \
+      -o "$TMPBODY" -w '%{http_code}' \
+      "$1" 2>/dev/null) || HTTP_CODE="000"
+    cat "$TMPBODY" 2>/dev/null
+    rm -f "$TMPBODY"
+    trap - EXIT INT TERM
+}
+
 case "$CMD" in
   resolve\ *)
     TAG=$(echo "$CMD" | cut -d' ' -f2 | tr -cd 'a-z0-9-')
-    RESULT=$(curl -sf --max-time 5 \
-      -H "X-Internal-Secret: ${INTERNAL_SECRET}" \
-      "http://${API_HOST}:8081/internal/resolve/${USERNAME}/${TAG}" 2>/dev/null || true)
-    if [ -n "$RESULT" ]; then
+    RESULT=$(_curl_with_status \
+      "http://${API_HOST}:8081/internal/resolve/${USERNAME}/${TAG}")
+    if [ "$HTTP_CODE" = "403" ]; then
+      echo "ERR internal auth failed" >&2
+      exit 1
+    elif [ "$HTTP_CODE" = "409" ]; then
+      echo "ERR ambiguous host tag: multiple hosts share that tag" >&2
+      exit 1
+    elif [ "$HTTP_CODE" = "000" ]; then
+      echo "ERR service unavailable" >&2
+      exit 1
+    elif [ -n "$RESULT" ]; then
       echo "$RESULT"
     else
       echo "ERR host not found or not authorized" >&2
@@ -22,15 +44,16 @@ case "$CMD" in
     fi
     ;;
   list)
-    CURL_EXIT=0
-    RESULT=$(curl -sf --max-time 5 \
-      -H "X-Internal-Secret: ${INTERNAL_SECRET}" \
-      "http://${API_HOST}:8081/internal/hosts/${USERNAME}" 2>/dev/null) || CURL_EXIT=$?
-    if [ -n "$RESULT" ]; then
-      printf '%s\n' "$RESULT"
-    elif [ "$CURL_EXIT" -ne 0 ]; then
+    RESULT=$(_curl_with_status \
+      "http://${API_HOST}:8081/internal/hosts/${USERNAME}")
+    if [ "$HTTP_CODE" = "403" ]; then
+      echo "ERR internal auth failed" >&2
+      exit 1
+    elif [ "$HTTP_CODE" = "000" ]; then
       echo "ERR service unavailable" >&2
       exit 1
+    elif [ -n "$RESULT" ]; then
+      printf '%s\n' "$RESULT"
     else
       echo "No hosts assigned to user" >&2
       exit 2
