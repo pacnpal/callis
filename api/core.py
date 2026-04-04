@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import logging
+import re
 import secrets
 import struct
 from datetime import datetime, timedelta, timezone
@@ -99,6 +100,24 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
+
+
+# ---------------------------------------------------------------------------
+# Template helpers
+# ---------------------------------------------------------------------------
+
+
+def slugify(value: str) -> str:
+    """Convert a string to a safe SSH Host alias (lowercase, alphanumeric + hyphens)."""
+    slug = value.lower().strip()
+    slug = re.sub(r"[^a-z0-9-]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug or "host"
+
+
+def register_template_filters(jinja_templates) -> None:
+    """Register custom Jinja2 filters on a Templates instance."""
+    jinja_templates.env.filters["slugify"] = slugify
 
 
 # ---------------------------------------------------------------------------

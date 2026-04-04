@@ -12,7 +12,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 
-from core import get_db, get_engine, get_session_factory, get_settings, hash_password, limiter
+from core import get_db, get_engine, get_session_factory, get_settings, hash_password, limiter, register_template_filters
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from models import AuditLog, Base, Host, SSHKey, User, UserRole
@@ -24,16 +24,7 @@ logger = logging.getLogger("callis")
 templates = Jinja2Templates(directory="templates")
 
 
-def _slugify(value: str) -> str:
-    """Convert a string to a safe SSH Host alias (lowercase, alphanumeric + hyphens)."""
-    import re as _re
-    slug = value.lower().strip()
-    slug = _re.sub(r"[^a-z0-9-]+", "-", slug)
-    slug = _re.sub(r"-+", "-", slug).strip("-")
-    return slug or "host"
-
-
-templates.env.filters["slugify"] = _slugify
+register_template_filters(templates)
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -41,43 +32,9 @@ templates.env.filters["slugify"] = _slugify
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings()
-
-    # Configure logging
-    logging.basicConfig(
-        level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-
-    # Create tables
-    engine = get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    # Seed admin user if no users exist
-    _username_re = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-    admin_username = settings.ADMIN_USERNAME.lower().strip()
-    if not _username_re.match(admin_username):
-        raise ValueError(f"ADMIN_USERNAME '{settings.ADMIN_USERNAME}' is invalid. Must be 1-32 lowercase alphanumeric chars, hyphens, or underscores, starting with a letter.")
-
-    factory = get_session_factory()
-    async with factory() as db:
-        result = await db.execute(select(func.count()).select_from(User))
-        count = result.scalar()
-        if count == 0:
-            admin = User(
-                username=admin_username,
-                display_name="Administrator",
-                hashed_password=hash_password(settings.ADMIN_PASSWORD),
-                role=UserRole.admin,
-                is_active=True,
-            )
-            db.add(admin)
-            await db.commit()
-            logger.info(f"Created initial admin user: {settings.ADMIN_USERNAME}")
-
+    # DB init runs in _init_db() before servers start; lifespan only handles shutdown
     yield
-
+    engine = get_engine()
     await engine.dispose()
 
 
@@ -186,7 +143,43 @@ async def generic_exception_handler(request: Request, exc: Exception):
 # Entrypoint: run both apps
 # ---------------------------------------------------------------------------
 
+async def _init_db():
+    """Run DB initialization (table creation + admin seed) before servers start."""
+    settings = get_settings()
+    logging.basicConfig(
+        level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    _username_re = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+    admin_username = settings.ADMIN_USERNAME.lower().strip()
+    if not _username_re.match(admin_username):
+        raise ValueError(f"ADMIN_USERNAME '{settings.ADMIN_USERNAME}' is invalid.")
+
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(select(func.count()).select_from(User))
+        count = result.scalar()
+        if count == 0:
+            admin = User(
+                username=admin_username,
+                display_name="Administrator",
+                hashed_password=hash_password(settings.ADMIN_PASSWORD),
+                role=UserRole.admin,
+                is_active=True,
+            )
+            db.add(admin)
+            await db.commit()
+            logger.info(f"Created initial admin user: {admin_username}")
+
+
 async def run_servers():
+    # Initialize DB before either server starts accepting connections
+    await _init_db()
+
     settings = get_settings()
     log_level = settings.LOG_LEVEL.lower()
 

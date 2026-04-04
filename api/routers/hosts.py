@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_settings, write_audit_log
+from core import get_db, get_settings, register_template_filters, write_audit_log
 from dependencies import require_role, require_totp_complete
 from models import AuditAction, Host, User, UserRole
 
@@ -17,16 +17,7 @@ _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-
-
-def _slugify(value: str) -> str:
-    slug = value.lower().strip()
-    slug = re.sub(r"[^a-z0-9-]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug).strip("-")
-    return slug or "host"
-
-
-templates.env.filters["slugify"] = _slugify
+register_template_filters(templates)
 
 
 @router.get("/hosts")

@@ -19,10 +19,10 @@ document.addEventListener("change", function (e) {
     var form = sel.closest("form");
     var hostRow = sel.closest("tr");
     var hostId = hostRow ? hostRow.id.replace("host-row-", "") : "";
-    if (hostId) {
+    if (hostId && window.htmx) {
       form.setAttribute("hx-post", "/hosts/" + hostId + "/assign/" + sel.value);
-      htmx.process(form);
-      htmx.trigger(form, "submit");
+      window.htmx.process(form);
+      window.htmx.trigger(form, "submit");
     }
   }
 });
