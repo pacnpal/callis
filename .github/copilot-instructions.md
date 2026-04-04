@@ -10,6 +10,8 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI for managin
 
 ## 2. Build & Validation Commands
 
+> **Note:** The repo is currently in the design/documentation phase. The source files (`api/`, `sshd/`, `docker-compose.yml`, `.env.example`, etc.) described in `docs/ARCHITECTURE.md` and `docs/DEVELOPMENT.md` have not been committed yet. The commands below apply to the **intended** project layout and will work once the source code is added.
+
 ### Full stack (Docker)
 
 ```bash
@@ -53,6 +55,8 @@ Set `DEV_MODE=true` and `LOG_LEVEL=debug` in `.env` for local development. `DEV_
 
 ## 3. Project Layout & Architecture
 
+The following is the **target project structure** as described in `docs/ARCHITECTURE.md`. Not all directories and files exist yet — verify against the actual repo contents before referencing specific paths.
+
 ```
 callis/
 ├── api/                        # FastAPI application (main codebase)
@@ -94,16 +98,18 @@ callis/
 
 ### SSH key handling
 
-Sanitize stored SSH public keys to a single line (no embedded newlines/control characters) before serving via AuthorizedKeysCommand. Only Ed25519 and RSA (4096-bit minimum) keys are accepted.
+Preserve valid OpenSSH public-key formatting when storing or serving keys via AuthorizedKeysCommand. Only Ed25519 and RSA (4096-bit minimum) keys are accepted.
 
 ## 4. File Reference
+
+> Files marked with † are described in the documentation but not yet committed to the repository.
 
 | File | Purpose |
 |---|---|
 | `README.md` | Quick start and feature summary |
-| `.env.example` | All environment variables with defaults |
-| `docker-compose.yml` | Primary stack definition (api + sshd) |
-| `docker-compose.override.yml` | Optional Caddy sidecar profile |
+| `.env.example` † | All environment variables with defaults |
+| `docker-compose.yml` † | Primary stack definition (api + sshd) |
+| `docker-compose.override.yml` † | Optional Caddy sidecar profile |
 | `docs/REQUIREMENTS.md` | Full functional and security requirements |
 | `docs/ARCHITECTURE.md` | System design, data model, request flows |
 | `docs/SECURITY.md` | Security contracts, SSH hardening, threat model |
@@ -122,4 +128,4 @@ Sanitize stored SSH public keys to a single line (no embedded newlines/control c
 
 ## 5. Final Note
 
-Trust these instructions. Only search the codebase if the information here is incomplete or found to be incorrect during execution.
+Use these instructions as guidance, but verify referenced files, directories, commands, and workflows against the repository contents and available documentation before relying on them. If anything here differs from the repo or docs, follow the repo and docs as the source of truth.
