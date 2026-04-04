@@ -30,11 +30,15 @@ def get_app_version() -> str:
     v = os.environ.get("APP_VERSION", "").strip()
     if v and v != "dev":
         return v
-    try:
-        with open(os.path.join(os.path.dirname(__file__), "..", ".version")) as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return "dev"
+    # Check sibling path first (works in Docker where core.py and .version are both in /app/)
+    # then parent path (works in local dev where core.py is in api/ and .version is at repo root)
+    for rel in (".", ".."):
+        try:
+            with open(os.path.join(os.path.dirname(__file__), rel, ".version")) as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            continue
+    return "dev"
 
 # ---------------------------------------------------------------------------
 # Settings

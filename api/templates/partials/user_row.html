@@ -24,9 +24,11 @@
           <button type="submit" class="outline">Activate</button>
         </form>
       {% endif %}
-      <button class="outline contrast"
-              hx-delete="/users/{{ row_user.id }}" hx-target="#user-row-{{ row_user.id }}" hx-swap="outerHTML"
-              hx-confirm="Delete user {{ row_user.username }}? This cannot be undone.">Delete</button>
+      <form method="post" action="/users/{{ row_user.id }}/delete"
+            hx-delete="/users/{{ row_user.id }}" hx-target="#user-row-{{ row_user.id }}" hx-swap="outerHTML"
+            hx-confirm="Delete user {{ row_user.username }}? This cannot be undone.">
+        <button type="submit" class="outline contrast">Delete</button>
+      </form>
     {% else %}
       <span class="text-muted text-small">(you)</span>
     {% endif %}

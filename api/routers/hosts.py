@@ -142,6 +142,7 @@ async def deactivate_host(
     return RedirectResponse(url="/hosts", status_code=303)
 
 
+@router.post("/hosts/{host_id}/delete")
 @router.delete("/hosts/{host_id}")
 async def delete_host(
     request: Request,

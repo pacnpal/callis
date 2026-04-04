@@ -222,6 +222,7 @@ async def activate_user(
     return RedirectResponse(url="/users", status_code=303)
 
 
+@router.post("/users/{user_id}/delete")
 @router.delete("/users/{user_id}")
 async def delete_user(
     request: Request,

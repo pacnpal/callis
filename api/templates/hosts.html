@@ -66,7 +66,7 @@
           {% for u in host.assigned_users %}
             <span class="badge">{{ u.username }}
               {% if user.role.value == "admin" %}
-              <button type="button" class="unassign-btn" hx-post="/hosts/{{ host.id }}/unassign/{{ u.id }}" hx-target="#host-row-{{ host.id }}" hx-swap="outerHTML" hx-confirm="Unassign {{ u.username }}?">&times;</button>
+              <button type="button" class="unassign-btn" aria-label="Unassign {{ u.username }}" hx-post="/hosts/{{ host.id }}/unassign/{{ u.id }}" hx-target="#host-row-{{ host.id }}" hx-swap="outerHTML" hx-confirm="Unassign {{ u.username }}?">&times;</button>
               {% endif %}
             </span>
           {% else %}
@@ -103,9 +103,11 @@
               <button type="submit" class="outline secondary">Deactivate</button>
             </form>
           {% endif %}
-          <button class="outline contrast"
-                  hx-delete="/hosts/{{ host.id }}" hx-target="#host-row-{{ host.id }}" hx-swap="outerHTML"
-                  hx-confirm="Delete host {{ host.label }}? This cannot be undone.">Delete</button>
+          <form method="post" action="/hosts/{{ host.id }}/delete"
+                hx-delete="/hosts/{{ host.id }}" hx-target="#host-row-{{ host.id }}" hx-swap="outerHTML"
+                hx-confirm="Delete host {{ host.label }}? This cannot be undone.">
+            <button type="submit" class="outline contrast">Delete</button>
+          </form>
         </td>
         {% endif %}
       </tr>
