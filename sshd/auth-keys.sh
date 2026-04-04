@@ -21,7 +21,7 @@ fi
 API_HOST="${CALLIS_API_HOST:-localhost}"
 INTERNAL_SECRET="${CALLIS_INTERNAL_SECRET:-}"
 KEYS=""
-KEYS_TMP=$(mktemp)
+KEYS_TMP=$(mktemp) || exit 0
 CURL_EXIT=0
 HTTP_STATUS=$(curl -sS --max-time 5 \
   -o "$KEYS_TMP" \
@@ -44,7 +44,7 @@ rm -f "$KEYS_TMP"
 
 # Only create the OS user if the API returned keys (prevents /etc/passwd growth from invalid usernames)
 if [ -n "$KEYS" ]; then
-    if ! id -- "$USERNAME" >/dev/null 2>&1; then
+    if ! id "$USERNAME" >/dev/null 2>&1; then
         NOLOGIN_SHELL=$(command -v nologin 2>/dev/null || echo /usr/sbin/nologin)
         if command -v adduser >/dev/null 2>&1 && ! command -v useradd >/dev/null 2>&1; then
             adduser -D -H -s "$NOLOGIN_SHELL" "$USERNAME" 2>/dev/null || true

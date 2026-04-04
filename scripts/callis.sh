@@ -105,21 +105,30 @@ _callis_connect() {
     TAG="$1"
     shift
 
-    STDERR_TMP=$(mktemp "${TMPDIR:-/tmp}/callis-err.XXXXXX") || STDERR_TMP="/dev/null"
+    STDERR_TMP_CREATED=0
+    if STDERR_TMP=$(mktemp "${TMPDIR:-/tmp}/callis-err.XXXXXX"); then
+        STDERR_TMP_CREATED=1
+    else
+        STDERR_TMP="/dev/null"
+    fi
     DEST=$(ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
         -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
         "${CALLIS_USER}@${CALLIS_HOST}" "resolve ${TAG}" 2>"$STDERR_TMP")
 
     if [ -z "$DEST" ]; then
-        if [ -s "$STDERR_TMP" ]; then
+        if [ "$STDERR_TMP_CREATED" -eq 1 ] && [ -s "$STDERR_TMP" ]; then
             cat "$STDERR_TMP" >&2
         else
             echo "Error: host '${TAG}' not found or not authorized" >&2
         fi
-        rm -f "$STDERR_TMP"
+        if [ "$STDERR_TMP_CREATED" -eq 1 ]; then
+            rm -f "$STDERR_TMP"
+        fi
         return 1
     fi
-    rm -f "$STDERR_TMP"
+    if [ "$STDERR_TMP_CREATED" -eq 1 ]; then
+        rm -f "$STDERR_TMP"
+    fi
 
     TARGET_HOST=$(echo "$DEST" | awk '{print $1}')
     TARGET_PORT=$(echo "$DEST" | awk '{print $2}')
