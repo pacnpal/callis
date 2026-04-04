@@ -138,7 +138,43 @@ No test suite exists yet. When adding tests, place them in `api/tests/`. Every r
 
 ---
 
-## 6. Environment Variables for Dev
+## 6. Testing Internal API Endpoints
+
+The internal API (port 8081) serves three endpoints used by the sshd container. To test locally:
+
+```bash
+# Derive the internal secret (same formula as entrypoint.sh)
+SECRET=$(printf 'callis-internal' | openssl dgst -sha256 -hmac "$SECRET_KEY" -hex | awk '{print $NF}')
+
+# Test key lookup
+curl -H "X-Internal-Secret: $SECRET" http://localhost:8081/internal/keys/alice
+
+# Test host resolution by tag
+curl -H "X-Internal-Secret: $SECRET" http://localhost:8081/internal/resolve/alice/mac-mini
+
+# Test host listing
+curl -H "X-Internal-Secret: $SECRET" http://localhost:8081/internal/hosts/alice
+
+# Test without secret (should return 403)
+curl -v http://localhost:8081/internal/keys/alice
+```
+
+To test the SSH command interface end-to-end:
+
+```bash
+# Resolve a host tag via SSH
+ssh -p 2222 alice@localhost "resolve mac-mini"
+
+# List hosts via SSH
+ssh -p 2222 alice@localhost list
+
+# Shell access denied (default behavior)
+ssh -p 2222 alice@localhost
+```
+
+---
+
+## 7. Environment Variables for Dev
 
 Add to `.env`:
 ```env

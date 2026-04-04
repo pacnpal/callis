@@ -3,9 +3,9 @@ FROM python:3.12-slim
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 
-# Install system dependencies: OpenSSH server, supervisor, curl
+# Install system dependencies: OpenSSH server, supervisor, curl, openssl
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openssh-server curl supervisor && \
+    apt-get install -y --no-install-recommends openssh-server curl supervisor openssl && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /etc/ssh/host_keys /var/run/sshd /var/log/callis
 
@@ -22,9 +22,10 @@ RUN mkdir -p /data /audit /app/static
 # --- SSHD setup ---
 COPY sshd/sshd_config /etc/ssh/sshd_config
 COPY sshd/auth-keys.sh /etc/ssh/auth-keys.sh
+COPY sshd/callis-cmd.sh /etc/ssh/callis-cmd.sh
 COPY sshd/banner.txt /etc/ssh/banner.txt
-RUN chmod 0755 /etc/ssh/auth-keys.sh && \
-    chown root:root /etc/ssh/auth-keys.sh /etc/ssh/sshd_config
+RUN chmod 0755 /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh && \
+    chown root:root /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh /etc/ssh/sshd_config
 
 # --- Version file ---
 COPY .version /app/.version

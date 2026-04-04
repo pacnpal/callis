@@ -178,7 +178,9 @@ async def _init_db():
     if not USERNAME_RE.match(admin_username):
         raise ValueError(f"ADMIN_USERNAME '{settings.ADMIN_USERNAME}' is invalid.")
     if admin_username in RESERVED_USERNAMES:
-        raise ValueError(f"ADMIN_USERNAME '{admin_username}' is a reserved system name.")
+        raise ValueError(
+            f"ADMIN_USERNAME '{admin_username}' is a reserved system name."
+        )
 
     factory = get_session_factory()
     async with factory() as db:

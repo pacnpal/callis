@@ -15,7 +15,7 @@ X11Forwarding no
 PermitTunnel no
 AllowAgentForwarding no
 PermitTTY no
-ForceCommand /sbin/nologin
+ForceCommand /etc/ssh/callis-cmd.sh
 MaxAuthTries 2
 LoginGraceTime 15
 ClientAliveInterval 300
