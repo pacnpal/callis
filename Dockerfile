@@ -14,7 +14,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.6.12 /uv /usr/local/bin/uv
 
 # --- API setup ---
 WORKDIR /app
-COPY api/pyproject.toml api/uv.lock* ./
+COPY api/pyproject.toml ./
 RUN uv sync --no-dev --no-install-project
 COPY api/ .
 RUN mkdir -p /data /audit /app/static

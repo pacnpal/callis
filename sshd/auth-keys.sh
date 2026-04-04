@@ -23,11 +23,16 @@ KEYS=$(curl -sf --max-time 5 "http://${API_HOST}:8081/internal/keys/${USERNAME}"
 
 # Only create the OS user if the API returned keys (prevents /etc/passwd growth from invalid usernames)
 if [ -n "$KEYS" ]; then
-    if ! id -- "$USERNAME" >/dev/null 2>&1; then
-        adduser -D -H -s /sbin/nologin -- "$USERNAME" 2>/dev/null || true
+    if ! id "$USERNAME" >/dev/null 2>&1; then
+        # Detect Alpine (adduser) vs Debian (useradd) for OS user creation
+        if command -v adduser >/dev/null 2>&1 && ! command -v useradd >/dev/null 2>&1; then
+            adduser -D -H -s /sbin/nologin "$USERNAME" 2>/dev/null || true
+        else
+            useradd --no-create-home --shell /usr/sbin/nologin "$USERNAME" 2>/dev/null || true
+        fi
     fi
     # Only output keys if the OS user exists (adduser may have failed)
-    if id -- "$USERNAME" >/dev/null 2>&1; then
+    if id "$USERNAME" >/dev/null 2>&1; then
         printf '%s\n' "$KEYS"
     fi
 fi

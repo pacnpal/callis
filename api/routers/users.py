@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -5,12 +7,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_settings, hash_password, parse_ssh_public_key, write_audit_log
+from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_settings, hash_password, parse_ssh_public_key, register_template_filters, write_audit_log
 from dependencies import require_admin_or_self, require_role
 from models import AuditAction, SSHKey, User, UserRole
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+register_template_filters(templates)
 
 
 @router.get("/users")
@@ -56,13 +59,19 @@ async def user_detail(
     user: User = Depends(require_admin_or_self),
 ):
     result = await db.execute(
-        select(User).options(selectinload(User.ssh_keys)).where(User.id == user_id)
+        select(User)
+        .options(selectinload(User.ssh_keys), selectinload(User.assigned_hosts))
+        .where(User.id == user_id)
     )
     target_user = result.scalar_one_or_none()
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
 
     active_keys = [k for k in target_user.ssh_keys if k.is_active]
+    assigned_hosts = [h for h in target_user.assigned_hosts if h.is_active]
+
+    settings = get_settings()
+    ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
 
     return templates.TemplateResponse(
         "user_detail.html",
@@ -70,6 +79,9 @@ async def user_detail(
             "request": request,
             "target_user": target_user,
             "keys": active_keys,
+            "assigned_hosts": assigned_hosts,
+            "ssh_host": ssh_host,
+            "ssh_port": settings.SSH_PORT,
             "user": user,
         },
     )
