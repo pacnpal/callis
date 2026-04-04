@@ -155,9 +155,12 @@ async def _init_db():
         await conn.run_sync(Base.metadata.create_all)
 
     _username_re = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+    _reserved = {"root", "daemon", "bin", "sys", "nobody", "sshd", "guest", "test"}
     admin_username = settings.ADMIN_USERNAME.lower().strip()
     if not _username_re.match(admin_username):
         raise ValueError(f"ADMIN_USERNAME '{settings.ADMIN_USERNAME}' is invalid.")
+    if admin_username in _reserved:
+        raise ValueError(f"ADMIN_USERNAME '{admin_username}' is a reserved system name.")
 
     factory = get_session_factory()
     async with factory() as db:
