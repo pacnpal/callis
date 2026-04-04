@@ -41,7 +41,7 @@ Commands:
 Examples:
   callis setup
   callis list
-  callis macmini
+  callis mac-mini
   callis web-prod -L 8080:localhost:8080
 USAGE
 }
@@ -105,14 +105,21 @@ _callis_connect() {
     TAG="$1"
     shift
 
+    STDERR_TMP=$(mktemp "${TMPDIR:-/tmp}/callis-err.XXXXXX") || STDERR_TMP="/dev/null"
     DEST=$(ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
         -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-        "${CALLIS_USER}@${CALLIS_HOST}" "resolve ${TAG}" 2>/dev/null)
+        "${CALLIS_USER}@${CALLIS_HOST}" "resolve ${TAG}" 2>"$STDERR_TMP")
 
     if [ -z "$DEST" ]; then
-        echo "Error: host '${TAG}' not found or not authorized" >&2
+        if [ -s "$STDERR_TMP" ]; then
+            cat "$STDERR_TMP" >&2
+        else
+            echo "Error: host '${TAG}' not found or not authorized" >&2
+        fi
+        rm -f "$STDERR_TMP"
         return 1
     fi
+    rm -f "$STDERR_TMP"
 
     TARGET_HOST=$(echo "$DEST" | awk '{print $1}')
     TARGET_PORT=$(echo "$DEST" | awk '{print $2}')

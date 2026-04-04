@@ -11,7 +11,7 @@ INTERNAL_SECRET="${CALLIS_INTERNAL_SECRET:-}"
 _curl_with_status() {
     # Usage: _curl_with_status <url>
     # Writes body to stdout, HTTP status code to $HTTP_CODE
-    TMPBODY=$(mktemp -t callis.XXXXXX) || { echo "ERR failed to create temp file" >&2; exit 1; }
+    TMPBODY=$(mktemp "${TMPDIR:-/tmp}/callis.XXXXXX") || { echo "ERR failed to create temp file" >&2; exit 1; }
     trap 'rm -f "$TMPBODY"' EXIT INT TERM
     HTTP_CODE=$(curl -s --max-time 5 \
       -H "X-Internal-Secret: ${INTERNAL_SECRET}" \
