@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core import get_db, get_settings, hash_password, parse_ssh_public_key, write_audit_log
-from dependencies import require_role, require_totp_complete
+from dependencies import require_admin_or_self, require_role, require_totp_complete
 from models import AuditAction, SSHKey, User, UserRole
 
 _USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -62,12 +62,8 @@ async def user_detail(
     request: Request,
     user_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_totp_complete),
+    user: User = Depends(require_admin_or_self),
 ):
-    # Admin can view any user; non-admin can only view own profile
-    if user.role != UserRole.admin and user.id != user_id:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-
     result = await db.execute(
         select(User).options(selectinload(User.ssh_keys)).where(User.id == user_id)
     )
@@ -259,12 +255,8 @@ async def upload_key(
     label: str = Form(...),
     public_key: str = Form(...),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_totp_complete),
+    user: User = Depends(require_admin_or_self),
 ):
-    # Admin can upload for any user; others only for themselves
-    if user.role != UserRole.admin and user.id != user_id:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-
     # Verify target user exists and is active
     target_result = await db.execute(select(User).where(User.id == user_id))
     target = target_result.scalar_one_or_none()
@@ -342,12 +334,8 @@ async def revoke_key(
     user_id: str,
     key_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_totp_complete),
+    user: User = Depends(require_admin_or_self),
 ):
-    # Admin can revoke any key; key owner can revoke own
-    if user.role != UserRole.admin and user.id != user_id:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-
     result = await db.execute(
         select(SSHKey).where(SSHKey.id == key_id, SSHKey.user_id == user_id)
     )

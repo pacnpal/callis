@@ -34,3 +34,13 @@ def require_role(role: str):
         return user
 
     return _check
+
+
+async def require_admin_or_self(
+    user_id: str,
+    user: User = Depends(require_totp_complete),
+) -> User:
+    """Allow admin to act on any user, or a user to act on themselves."""
+    if user.role != UserRole.admin and user.id != user_id:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return user

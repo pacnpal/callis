@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core import get_db, get_engine, get_session_factory, get_settings, hash_password, limiter, register_template_filters
 from dependencies import require_totp_complete
@@ -68,7 +69,7 @@ app.include_router(audit.router)
 async def dashboard(
     request: Request,
     user: User = Depends(require_totp_complete),
-    db=Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy.orm import selectinload
 
