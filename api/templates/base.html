@@ -16,7 +16,8 @@
       <li><a href="/dashboard" class="brand">Callis</a></li>
     </ul>
     <ul>
-      {% if user and user.totp_enrolled %}
+      {% if user %}
+        {% if user.totp_enrolled %}
         <li><a href="/dashboard">Dashboard</a></li>
         {% if user.role.value == "admin" %}
           <li><a href="/users">Users</a></li>
@@ -24,6 +25,7 @@
         <li><a href="/users/{{ user.id }}">My Keys</a></li>
         <li><a href="/hosts">Hosts</a></li>
         <li><a href="/audit">Audit Log</a></li>
+        {% endif %}
         <li>
           <form method="post" action="/logout" class="nav-form">
             <button type="submit" class="outline secondary nav-btn">Logout</button>

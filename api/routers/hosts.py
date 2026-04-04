@@ -1,4 +1,3 @@
-import logging
 import re
 from urllib.parse import urlparse
 
@@ -16,7 +15,6 @@ from models import AuditAction, Host, User, UserRole
 # Hostnames/IPv4 only; IPv6 literals (with colons) not yet supported
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
-logger = logging.getLogger("callis")
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 

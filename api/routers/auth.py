@@ -1,6 +1,5 @@
 import io
 import base64
-import logging
 from datetime import datetime, timezone
 
 import qrcode
@@ -27,7 +26,6 @@ from core import (
 from dependencies import get_current_user
 from models import AuditAction, User
 
-logger = logging.getLogger("callis")
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 

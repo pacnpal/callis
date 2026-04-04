@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives import hashes
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic_settings import BaseSettings
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from models import AuditAction, AuditLog
@@ -102,9 +104,6 @@ def verify_password(plain: str, hashed: str) -> bool:
 # ---------------------------------------------------------------------------
 # Rate limiter (shared instance for app and routers)
 # ---------------------------------------------------------------------------
-
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 limiter = Limiter(key_func=get_remote_address)
 

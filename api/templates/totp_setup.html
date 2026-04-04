@@ -7,10 +7,6 @@
     <p>Scan the QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code to confirm.</p>
   </header>
 
-  {% if error %}
-    <div class="flash flash-error" role="alert">{{ error }}</div>
-  {% endif %}
-
   <div class="totp-qr">
     <img src="data:image/png;base64,{{ qr_code }}" alt="TOTP QR Code">
   </div>

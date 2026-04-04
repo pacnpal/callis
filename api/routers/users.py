@@ -1,4 +1,3 @@
-import logging
 import re
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -19,7 +18,6 @@ _RESERVED_USERNAMES = frozenset({
     "nobody", "sshd", "admin", "guest", "operator", "test",
 })
 
-logger = logging.getLogger("callis")
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 

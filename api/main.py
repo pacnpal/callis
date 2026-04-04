@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
@@ -54,13 +55,18 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
 
     # Seed admin user if no users exist
+    _username_re = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+    admin_username = settings.ADMIN_USERNAME.lower().strip()
+    if not _username_re.match(admin_username):
+        raise ValueError(f"ADMIN_USERNAME '{settings.ADMIN_USERNAME}' is invalid. Must be 1-32 lowercase alphanumeric chars, hyphens, or underscores, starting with a letter.")
+
     factory = get_session_factory()
     async with factory() as db:
         result = await db.execute(select(func.count()).select_from(User))
         count = result.scalar()
         if count == 0:
             admin = User(
-                username=settings.ADMIN_USERNAME,
+                username=admin_username,
                 display_name="Administrator",
                 hashed_password=hash_password(settings.ADMIN_PASSWORD),
                 role=UserRole.admin,

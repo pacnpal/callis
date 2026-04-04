@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime, time, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -11,7 +10,6 @@ from core import get_db
 from dependencies import require_role
 from models import AuditAction, AuditLog, User
 
-logger = logging.getLogger("callis")
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
