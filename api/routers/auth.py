@@ -144,12 +144,16 @@ async def totp_setup_page(
     if user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
 
+    # Re-load user in this session so mutations are persisted
+    result = await db.execute(select(User).where(User.id == user.id))
+    db_user = result.scalar_one()
+
     # Generate or reuse TOTP secret
-    if user.totp_secret:
-        secret = decrypt_totp_secret(user.totp_secret)
+    if db_user.totp_secret:
+        secret = decrypt_totp_secret(db_user.totp_secret)
     else:
         secret = generate_totp_secret()
-        user.totp_secret = encrypt_totp_secret(secret)
+        db_user.totp_secret = encrypt_totp_secret(secret)
         await db.flush()
 
     # Generate QR code as base64
@@ -180,13 +184,17 @@ async def totp_verify(
     if user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
 
-    if not user.totp_secret:
+    # Re-load user in this session so mutations are persisted
+    result = await db.execute(select(User).where(User.id == user.id))
+    db_user = result.scalar_one()
+
+    if not db_user.totp_secret:
         return RedirectResponse(url="/totp/setup", status_code=303)
 
-    secret = decrypt_totp_secret(user.totp_secret)
+    secret = decrypt_totp_secret(db_user.totp_secret)
     if not verify_totp(secret, totp_code):
         # Re-render setup with error
-        uri = get_totp_uri(secret, user.username)
+        uri = get_totp_uri(secret, db_user.username)
         img = qrcode.make(uri)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -203,13 +211,13 @@ async def totp_verify(
             },
         )
 
-    user.totp_enrolled = True
+    db_user.totp_enrolled = True
     await write_audit_log(
         db,
-        actor_id=user.id,
+        actor_id=db_user.id,
         action=AuditAction.TOTP_SETUP,
         target_type="user",
-        target_id=user.id,
+        target_id=db_user.id,
         source_ip=request.client.host if request.client else None,
     )
 

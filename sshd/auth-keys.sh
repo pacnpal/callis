@@ -25,5 +25,8 @@ if [ -n "$KEYS" ]; then
     if ! id -- "$USERNAME" >/dev/null 2>&1; then
         adduser -D -H -s /sbin/nologin -- "$USERNAME" 2>/dev/null || true
     fi
-    printf '%s\n' "$KEYS"
+    # Only output keys if the OS user exists (adduser may have failed)
+    if id -- "$USERNAME" >/dev/null 2>&1; then
+        printf '%s\n' "$KEYS"
+    fi
 fi
