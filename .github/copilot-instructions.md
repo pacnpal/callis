@@ -94,7 +94,7 @@ callis/
 
 ### SSH key handling
 
-Sanitize stored SSH public keys to a single line (no embedded newlines/control characters) before serving via AuthorizedKeysCommand. Only Ed25519 and RSA ≥ 4096-bit keys are accepted.
+Sanitize stored SSH public keys to a single line (no embedded newlines/control characters) before serving via AuthorizedKeysCommand. Only Ed25519 and RSA (4096-bit minimum) keys are accepted.
 
 ## 4. File Reference
 
