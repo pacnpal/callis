@@ -22,9 +22,10 @@ RUN mkdir -p /data /audit /app/static
 # --- SSHD setup ---
 COPY sshd/sshd_config /etc/ssh/sshd_config
 COPY sshd/auth-keys.sh /etc/ssh/auth-keys.sh
+COPY sshd/callis-cmd.sh /etc/ssh/callis-cmd.sh
 COPY sshd/banner.txt /etc/ssh/banner.txt
-RUN chmod 0755 /etc/ssh/auth-keys.sh && \
-    chown root:root /etc/ssh/auth-keys.sh /etc/ssh/sshd_config
+RUN chmod 0755 /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh && \
+    chown root:root /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh /etc/ssh/sshd_config
 
 # --- Version file ---
 COPY .version /app/.version

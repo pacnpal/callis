@@ -214,7 +214,34 @@ Users connect directly to the SSH port; only the web UI goes through the reverse
 
 ---
 
-## SSH Client Configuration
+## Quick Connect (Callis CLI)
+
+The Callis CLI lets you SSH to any assigned host by tag — no manual SSH config needed:
+
+```bash
+# Add to your shell rc file (~/.bashrc, ~/.zshrc, etc.)
+source /path/to/callis/scripts/callis.sh
+
+# One-time setup
+callis setup
+
+# List your assigned hosts
+callis list
+# mac-mini   192.168.1.50   22   Mac Mini Server
+# web-prod   10.0.1.20      22   Production Web
+
+# Connect by tag
+callis mac-mini
+
+# Pass extra SSH options
+callis web-prod -L 8080:localhost:8080
+```
+
+The CLI resolves host tags over SSH (no HTTP API calls from the client), then connects through the bastion via ProxyJump.
+
+---
+
+## SSH Client Configuration (Manual)
 
 After uploading your public key through the web UI, add this to `~/.ssh/config`:
 

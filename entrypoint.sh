@@ -5,6 +5,11 @@ set -e
 export CALLIS_API_HOST="${CALLIS_API_HOST:-localhost}"
 export CALLIS_SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/callis/auth.log}"
 
+# Derive internal API shared secret from SECRET_KEY via HMAC-SHA256
+if [ -n "${SECRET_KEY:-}" ] && [ -z "${CALLIS_INTERNAL_SECRET:-}" ]; then
+    export CALLIS_INTERNAL_SECRET=$(printf 'callis-internal' | openssl dgst -sha256 -hmac "$SECRET_KEY" -hex 2>/dev/null | awk '{print $NF}')
+fi
+
 # Generate SSH host key if not present
 HOST_KEY="/etc/ssh/host_keys/ssh_host_ed25519_key"
 if [ ! -f "$HOST_KEY" ]; then

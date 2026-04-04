@@ -123,9 +123,9 @@ In OIDC mode, Callis delegates authentication entirely to the OIDC provider. TOT
 |---|---|---|---|
 | `${WEB_PORT}` (8080) | TCP | Web UI | Yes — to host |
 | `${SSH_PORT}` (2222) | TCP | SSH jump server | Yes — to host |
-| `8081` | TCP | Internal key endpoint | **No** — Docker network only |
+| `8081` | TCP | Internal API (keys, resolve, hosts) | **No** — Docker network only |
 
-The internal key endpoint (8081) is used exclusively by the sshd container to fetch authorized keys. It must never be exposed outside the Docker network.
+The internal API (8081) is used exclusively by the sshd container to fetch authorized keys and resolve host tags. It must never be exposed outside the Docker network.
 
 ---
 
@@ -142,6 +142,29 @@ The internal key endpoint (8081) is used exclusively by the sshd container to fe
 ---
 
 ## 6. SSH Client Configuration
+
+### Option A — Callis CLI (recommended)
+
+The Callis CLI lets you connect by host tag without managing `~/.ssh/config`:
+
+```bash
+# Install: add to your shell rc file (~/.bashrc, ~/.zshrc, etc.)
+source /path/to/callis/scripts/callis.sh
+
+# First-time setup
+callis setup
+
+# List available hosts
+callis list
+
+# Connect by tag
+callis macmini
+
+# Pass extra SSH args
+callis web-prod -L 8080:localhost:8080
+```
+
+### Option B — Manual SSH config
 
 After deployment, add this to your `~/.ssh/config` to use Callis as a jump host:
 

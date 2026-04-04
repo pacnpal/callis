@@ -86,7 +86,7 @@ X11Forwarding no
 PermitTunnel no
 AllowAgentForwarding yes
 PermitTTY no
-ForceCommand /usr/sbin/nologin
+ForceCommand /etc/ssh/callis-cmd.sh
 
 MaxAuthTries 2
 LoginGraceTime 15
@@ -97,7 +97,7 @@ LogLevel VERBOSE
 Banner /etc/ssh/banner.txt
 ```
 
-Note on `PermitTTY no` + `ForceCommand /usr/sbin/nologin`: this combination prevents interactive shell access while still permitting TCP forwarding (ProxyJump). OpenSSH allows TCP forwarding independently of TTY and shell access.
+Note on `PermitTTY no` + `ForceCommand /etc/ssh/callis-cmd.sh`: ForceCommand applies only to shell/exec SSH requests, not to `direct-tcpip` channel requests (which is what ProxyJump uses). The command router allows only two whitelisted commands (`resolve <tag>` and `list`) — all other input is denied with "This account is not available." Tag input is sanitized to `[a-z0-9-]` only.
 
 ### Key algorithm policy
 
@@ -140,12 +140,19 @@ Note on `PermitTTY no` + `ForceCommand /usr/sbin/nologin`: this combination prev
 - Per-user OS accounts — compromised account is isolated
 - Admin can deactivate account immediately from web UI
 
-### Threat: Exposed internal key endpoint
+### Threat: Exposed internal API
+
+**Mitigations (defense-in-depth, three layers):**
+1. **Network isolation** — port 8081 bound separately, never exposed in `docker-compose.yml`, only reachable within the Docker network
+2. **Internal shared secret** — all internal API requests (`/internal/keys/`, `/internal/resolve/`, `/internal/hosts/`) require a valid `X-Internal-Secret` header. The secret is derived deterministically from `SECRET_KEY` via `HMAC-SHA256(SECRET_KEY, "callis-internal")`, so no additional env var is needed. Requests with missing or invalid secrets are rejected with 403.
+3. **SSH key authentication** — `callis-cmd.sh` only executes after SSH key auth succeeds. The username comes from `$(whoami)` (the OS user created by `auth-keys.sh` after key verification), not from client input.
+
+### Threat: Command injection via ForceCommand
 
 **Mitigations:**
-- `/internal/keys/{username}` bound to a separate port (8081) not exposed in `docker-compose.yml`
-- Only reachable from within the Docker network
-- No authentication required on this endpoint by design — network isolation is the control
+- `callis-cmd.sh` uses a strict `case` statement — only `resolve <tag>` and `list` are allowed
+- Tag input is sanitized via `tr -cd 'a-z0-9-'` — all other characters are stripped
+- Default case denies access (same behavior as previous `/sbin/nologin`)
 
 ### Threat: XSS
 

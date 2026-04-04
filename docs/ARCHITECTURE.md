@@ -46,6 +46,7 @@ Key behaviours:
 Key files:
 - `/etc/ssh/sshd_config` — hardened configuration, templated from environment at startup
 - `/etc/ssh/auth-keys.sh` — the `AuthorizedKeysCommand` script
+- `/etc/ssh/callis-cmd.sh` — the `ForceCommand` script: routes `resolve <tag>` and `list` commands, denies all other shell access
 - `/etc/ssh/host_keys/ssh_host_ed25519_key` — persisted host key (volume-mounted)
 
 ### 2.2 api Container
@@ -55,7 +56,7 @@ Key files:
 
 The application is split across two listeners:
 - **Port 8080** — public-facing web UI and all authenticated routes
-- **Port 8081** — internal-only, bound to `127.0.0.1` within the Docker network, serves only `/internal/keys/{username}`. This port MUST NOT be exposed in `docker-compose.yml`.
+- **Port 8081** — internal-only, bound to `127.0.0.1` within the Docker network. Serves `/internal/keys/{username}`, `/internal/resolve/{username}/{tag}`, and `/internal/hosts/{username}`. All requests require a valid `X-Internal-Secret` header. This port MUST NOT be exposed in `docker-compose.yml`.
 
 **Framework stack:**
 - FastAPI — routing, dependency injection, request handling
@@ -88,7 +89,7 @@ api/
 │   ├── users.py             # /users — CRUD, key management
 │   ├── hosts.py             # /hosts — jump target management
 │   ├── audit.py             # /audit — log viewer
-│   └── internal.py          # /internal/keys/{username} — sshd key lookup
+│   └── internal.py          # /internal/keys, /resolve, /hosts — sshd endpoints
 └── templates/
     ├── base.html            # Nav, CDN links, flash messages
     ├── login.html
@@ -196,17 +197,29 @@ Browser
   → HTML response
 ```
 
-### SSH connection
+### SSH connection (ProxyJump — manual config)
 ```
 SSH client (ssh -J user@callis:2222 user@target)
   → sshd container:2222
   → OpenSSH: look up user OS account
   → AuthorizedKeysCommand: /etc/ssh/auth-keys.sh username
-    → HTTP GET api:8081/internal/keys/username
+    → HTTP GET api:8081/internal/keys/username (with X-Internal-Secret)
     → Returns active public keys for user
   → OpenSSH: verify client key against returned keys
-  → If match: allow TCP forwarding to target
-  → AuditLog: connection event written via API call
+  → If match: allow TCP forwarding to target (via permitopen)
+```
+
+### SSH connection (Callis CLI — tag-based)
+```
+callis <tag>
+  → ssh user@bastion "resolve <tag>"
+  → sshd: ForceCommand → /etc/ssh/callis-cmd.sh
+    → reads SSH_ORIGINAL_COMMAND="resolve <tag>"
+    → HTTP GET api:8081/internal/resolve/username/tag (with X-Internal-Secret)
+    → returns: hostname port
+  → client parses "hostname port"
+  → ssh -J user@bastion:2222 user@hostname -p port
+    → ProxyJump: permitopen="hostname:port" ✓ → connected
 ```
 
 ### Key revocation
@@ -223,7 +236,7 @@ Admin clicks "Revoke" in web UI
 
 ## 5. Network Isolation
 
-The internal key endpoint (`api:8081`) MUST NOT be exposed in `docker-compose.yml`. It is only reachable from within the Docker network — specifically from the sshd container making HTTP requests to `http://api:8081`.
+The internal API (`api:8081`) MUST NOT be exposed in `docker-compose.yml`. It is only reachable from within the Docker network — specifically from the sshd container making HTTP requests to `http://api:8081`. All internal API requests require a valid `X-Internal-Secret` header (HMAC-SHA256 derived from `SECRET_KEY`) as defense-in-depth.
 
 The public web UI port (`api:8080`) is exposed to the host and optionally fronted by Caddy or an external reverse proxy.
 
@@ -245,10 +258,13 @@ callis/
 │   ├── SECURITY.md
 │   ├── DEPLOYMENT.md
 │   └── DEVELOPMENT.md
+├── scripts/
+│   └── callis.sh               # Client-side CLI (source into shell)
 ├── sshd/
 │   ├── Dockerfile
 │   ├── sshd_config
 │   ├── auth-keys.sh
+│   ├── callis-cmd.sh           # ForceCommand script (resolve/list/deny)
 │   └── entrypoint.sh
 ├── api/
 │   ├── Dockerfile
