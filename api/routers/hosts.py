@@ -57,21 +57,29 @@ async def create_host(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
-    def _form_error(detail: str):
+    async def _form_error(detail: str):
         settings = get_settings()
         ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+        result = await db.execute(
+            select(Host).options(selectinload(Host.assigned_users)).order_by(Host.created_at.desc())
+        )
+        all_hosts = result.scalars().all()
+        au = []
+        if user.role == UserRole.admin:
+            ur = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
+            au = ur.scalars().all()
         return templates.TemplateResponse(
             "hosts.html",
-            {"request": request, "error": detail, "hosts": [], "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": []},
+            {"request": request, "error": detail, "hosts": all_hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": au},
             status_code=400,
         )
 
     # Validate hostname (no quotes, commas, spaces — these would break permitopen options)
     hostname = hostname.strip()
     if not _HOSTNAME_RE.match(hostname) or len(hostname) > 255:
-        return _form_error("Invalid hostname. Use alphanumeric characters, dots, hyphens, and underscores only.")
+        return await _form_error("Invalid hostname. Use alphanumeric characters, dots, hyphens, and underscores only.")
     if not 1 <= port <= 65535:
-        return _form_error("Port must be between 1 and 65535")
+        return await _form_error("Port must be between 1 and 65535")
 
     new_host = Host(
         label=label,

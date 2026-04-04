@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 import uvicorn
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from slowapi import _rate_limit_exceeded_handler
@@ -128,6 +128,25 @@ async def root():
 
 
 # Global exception handler
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # Redirect exceptions (303) pass through as-is
+    if exc.status_code == 303:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=exc.headers.get("Location", "/login"), status_code=303)
+    # For browser requests, render an HTML error page
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return templates.TemplateResponse(
+            "500.html",
+            {"request": request, "error": exc.detail},
+            status_code=exc.status_code,
+        )
+    # API/JSON clients get the default JSON response
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
 @app.exception_handler(500)
 async def internal_error_handler(request: Request, exc: Exception):
     logger.exception("Unhandled exception")

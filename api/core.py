@@ -188,6 +188,7 @@ def _derive_fernet_key(secret_key: str) -> bytes:
     return base64.urlsafe_b64encode(kdf.derive(secret_key.encode()))
 
 
+@lru_cache
 def _get_fernet() -> Fernet:
     settings = get_settings()
     key = _derive_fernet_key(settings.SECRET_KEY)
