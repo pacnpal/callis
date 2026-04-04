@@ -12,6 +12,22 @@ document.addEventListener("click", function (e) {
   }
 });
 
+// Copy-to-clipboard handler (SSH config and other copyable blocks)
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest("[data-copy-trigger]");
+  if (!btn) return;
+  var targetId = btn.getAttribute("data-copy-trigger");
+  var target = document.querySelector('[data-copy-target="' + targetId + '"]');
+  if (!target) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(target.textContent).then(function () {
+      var orig = btn.textContent;
+      btn.textContent = "Copied!";
+      setTimeout(function () { btn.textContent = orig; }, 2000);
+    });
+  }
+});
+
 // Host user assignment: auto-submit on select change
 document.addEventListener("change", function (e) {
   var sel = e.target.closest(".assign-select");

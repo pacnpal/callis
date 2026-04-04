@@ -1,0 +1,55 @@
+{% if assigned_hosts %}
+<p>Copy this config into your <code>~/.ssh/config</code> file to connect through Callis. On Windows, this file is at <code>C:\Users\&lt;you&gt;\.ssh\config</code>.</p>
+<p class="text-small text-muted">Replace <code>~/.ssh/your_ed25519_key</code> with the path to the private key matching the public key you uploaded above.</p>
+
+<div class="ssh-config-actions">
+  <button type="button" class="outline btn-sm" data-copy-trigger="full-ssh-config">Copy Full Config</button>
+</div>
+
+<pre class="ssh-config" data-copy-target="full-ssh-config">Host callis
+    HostName {{ ssh_host }}
+    Port {{ ssh_port }}
+    User {{ target_user.username }}
+    IdentityFile ~/.ssh/your_ed25519_key
+{% for host in assigned_hosts %}
+
+Host {{ host.label | slugify }}
+    HostName {{ host.hostname }}
+    Port {{ host.port }}
+    ProxyJump callis
+{%- endfor %}</pre>
+
+<p class="text-small text-muted">After saving, connect with: <code>ssh {{ (assigned_hosts[0].label | slugify) }}</code></p>
+
+<h4>Individual Host Configs</h4>
+<p class="text-small text-muted">Need just one host? Copy its config block below. The bastion <code>Host callis</code> entry above is still required.</p>
+
+{% for host in assigned_hosts %}
+<div class="ssh-config-host">
+  <div class="ssh-config-host-header">
+    <strong>{{ host.label }}</strong> <span class="text-muted text-small">({{ host.hostname }}:{{ host.port }})</span>
+    <button type="button" class="outline btn-sm" data-copy-trigger="ssh-host-{{ host.id }}">Copy</button>
+  </div>
+  <pre class="ssh-config" data-copy-target="ssh-host-{{ host.id }}">Host {{ host.label | slugify }}
+    HostName {{ host.hostname }}
+    Port {{ host.port }}
+    ProxyJump callis</pre>
+</div>
+{% endfor %}
+
+{% else %}
+<p>Copy this into your <code>~/.ssh/config</code> to configure the Callis bastion connection. On Windows, this file is at <code>C:\Users\&lt;you&gt;\.ssh\config</code>.</p>
+<p class="text-small text-muted">Replace <code>~/.ssh/your_ed25519_key</code> with the path to the private key matching the public key you uploaded above.</p>
+
+<div class="ssh-config-actions">
+  <button type="button" class="outline btn-sm" data-copy-trigger="full-ssh-config">Copy</button>
+</div>
+
+<pre class="ssh-config" data-copy-target="full-ssh-config">Host callis
+    HostName {{ ssh_host }}
+    Port {{ ssh_port }}
+    User {{ target_user.username }}
+    IdentityFile ~/.ssh/your_ed25519_key</pre>
+
+<p class="text-muted">No hosts are assigned to this account yet. Ask an administrator to assign you to jump targets — they will then appear here with ready-to-use SSH config.</p>
+{% endif %}
