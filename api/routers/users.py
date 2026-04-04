@@ -95,30 +95,34 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
+    def _form_error(detail: str):
+        return templates.TemplateResponse(
+            "users.html",
+            {"request": request, "error": detail, "users": [], "key_counts": {}, "user": user},
+            status_code=400,
+        )
+
     # Server-side username validation
     username = username.lower().strip()
     if not _USERNAME_RE.match(username):
-        raise HTTPException(
-            status_code=400,
-            detail="Username must be 1-32 lowercase alphanumeric characters, hyphens, or underscores, starting with a letter.",
-        )
+        return _form_error("Username must be 1-32 lowercase alphanumeric characters, hyphens, or underscores, starting with a letter.")
     if username in _RESERVED_USERNAMES:
-        raise HTTPException(status_code=400, detail=f"Username '{username}' is reserved")
+        return _form_error(f"Username '{username}' is reserved")
 
     # Server-side password validation
     if len(password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        return _form_error("Password must be at least 8 characters")
 
     # Validate role
     try:
         user_role = UserRole(role)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid role '{role}'. Must be one of: admin, operator, readonly")
+        return _form_error(f"Invalid role '{role}'. Must be one of: admin, operator, readonly")
 
     # Check duplicate username
     existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Username already exists")
+        return _form_error("Username already exists")
 
     new_user = User(
         username=username,

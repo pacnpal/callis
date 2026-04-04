@@ -57,12 +57,21 @@ async def create_host(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
+    def _form_error(detail: str):
+        settings = get_settings()
+        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+        return templates.TemplateResponse(
+            "hosts.html",
+            {"request": request, "error": detail, "hosts": [], "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": []},
+            status_code=400,
+        )
+
     # Validate hostname (no quotes, commas, spaces — these would break permitopen options)
     hostname = hostname.strip()
     if not _HOSTNAME_RE.match(hostname) or len(hostname) > 255:
-        raise HTTPException(status_code=400, detail="Invalid hostname. Use alphanumeric characters, dots, hyphens, and underscores only.")
+        return _form_error("Invalid hostname. Use alphanumeric characters, dots, hyphens, and underscores only.")
     if not 1 <= port <= 65535:
-        raise HTTPException(status_code=400, detail="Port must be between 1 and 65535")
+        return _form_error("Port must be between 1 and 65535")
 
     new_host = Host(
         label=label,

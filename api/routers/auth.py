@@ -77,12 +77,12 @@ async def login_submit(
     if not verify_password(password, user.hashed_password):
         await write_audit_log(
             db,
-            actor_id=user.id,
+            actor_id=None,
             action=AuditAction.LOGIN_FAILURE,
             target_type="user",
             target_id=user.id,
             source_ip=request.client.host if request.client else None,
-            detail={"reason": "wrong_password"},
+            detail={"reason": "wrong_password", "target_username": user.username},
         )
         return templates.TemplateResponse(
             "login.html",
@@ -98,11 +98,12 @@ async def login_submit(
         if not totp_valid:
             await write_audit_log(
                 db,
-                actor_id=user.id,
+                actor_id=None,
                 action=AuditAction.TOTP_FAILURE,
                 target_type="user",
                 target_id=user.id,
                 source_ip=request.client.host if request.client else None,
+                detail={"reason": "invalid_totp", "target_username": user.username},
             )
             return templates.TemplateResponse(
                 "login.html",
