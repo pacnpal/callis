@@ -24,7 +24,7 @@ KEYS=$(curl -sf --max-time 5 "http://${API_HOST}:8081/internal/keys/${USERNAME}"
 # Only create the OS user if the API returned keys (prevents /etc/passwd growth from invalid usernames)
 if [ -n "$KEYS" ]; then
     if ! id -- "$USERNAME" >/dev/null 2>&1; then
-        adduser -D -H -s /sbin/nologin -- "$USERNAME" 2>/dev/null || true
+        useradd --no-create-home --shell /usr/sbin/nologin "$USERNAME" 2>/dev/null || true
     fi
     # Only output keys if the OS user exists (adduser may have failed)
     if id -- "$USERNAME" >/dev/null 2>&1; then

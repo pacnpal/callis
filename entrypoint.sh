@@ -20,6 +20,10 @@ else
     chmod 644 "${HOST_KEY}.pub"
 fi
 
+# Default env vars consumed by supervisord %(ENV_...)s interpolation
+export LOG_LEVEL="${LOG_LEVEL:-info}"
+export APP_VERSION="${APP_VERSION:-$(cat /app/.version 2>/dev/null || echo 'dev')}"
+
 # Ensure log directory exists
 mkdir -p /var/log/callis
 

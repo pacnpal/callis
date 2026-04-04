@@ -13,13 +13,13 @@
     IdentityFile ~/.ssh/your_ed25519_key
 {% for host in assigned_hosts %}
 
-Host {{ host.label | slugify }}
+Host {{ host.label | slugify }}-{{ host.id[:6] }}
     HostName {{ host.hostname }}
     Port {{ host.port }}
     ProxyJump callis
 {%- endfor %}</pre>
 
-<p class="text-small text-muted">After saving, connect with: <code>ssh {{ (assigned_hosts[0].label | slugify) }}</code></p>
+<p class="text-small text-muted">After saving, connect with: <code>ssh {{ (assigned_hosts[0].label | slugify) }}-{{ assigned_hosts[0].id[:6] }}</code></p>
 
 <h4>Individual Host Configs</h4>
 <p class="text-small text-muted">Need just one host? Copy its config block below. The bastion <code>Host callis</code> entry above is still required.</p>
@@ -30,7 +30,7 @@ Host {{ host.label | slugify }}
     <strong>{{ host.label }}</strong> <span class="text-muted text-small">({{ host.hostname }}:{{ host.port }})</span>
     <button type="button" class="outline btn-sm" data-copy-trigger="ssh-host-{{ host.id }}">Copy</button>
   </div>
-  <pre class="ssh-config" data-copy-target="ssh-host-{{ host.id }}">Host {{ host.label | slugify }}
+  <pre class="ssh-config" data-copy-target="ssh-host-{{ host.id }}">Host {{ host.label | slugify }}-{{ host.id[:6] }}
     HostName {{ host.hostname }}
     Port {{ host.port }}
     ProxyJump callis</pre>

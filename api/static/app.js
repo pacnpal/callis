@@ -13,18 +13,33 @@ document.addEventListener("click", function (e) {
 });
 
 // Copy-to-clipboard handler (SSH config and other copyable blocks)
+// Uses navigator.clipboard when available (requires HTTPS), falls back to
+// execCommand('copy') for HTTP/LAN deployments.
 document.addEventListener("click", function (e) {
   var btn = e.target.closest("[data-copy-trigger]");
   if (!btn) return;
   var targetId = btn.getAttribute("data-copy-trigger");
   var target = document.querySelector('[data-copy-target="' + targetId + '"]');
   if (!target) return;
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(target.textContent).then(function () {
-      var orig = btn.textContent;
-      btn.textContent = "Copied!";
-      setTimeout(function () { btn.textContent = orig; }, 2000);
-    });
+  var text = target.textContent;
+
+  function onSuccess() {
+    var orig = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(function () { btn.textContent = orig; }, 2000);
+  }
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(onSuccess);
+  } else {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); onSuccess(); } catch (_) {}
+    document.body.removeChild(ta);
   }
 });
 

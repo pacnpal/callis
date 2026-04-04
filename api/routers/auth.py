@@ -19,6 +19,7 @@ from core import (
     get_totp_uri,
     hash_password,
     limiter,
+    register_template_filters,
     verify_password,
     verify_totp,
     write_audit_log,
@@ -28,6 +29,7 @@ from models import AuditAction, User
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+register_template_filters(templates)
 
 # Precomputed dummy hash for constant-time login checks (avoid hashing on every failed attempt)
 _DUMMY_HASH = hash_password("dummy-constant-time-check")

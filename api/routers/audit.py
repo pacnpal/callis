@@ -6,12 +6,13 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db
+from core import get_db, register_template_filters
 from dependencies import require_role
 from models import AuditAction, AuditLog, User
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+register_template_filters(templates)
 
 PAGE_SIZE = 50
 
