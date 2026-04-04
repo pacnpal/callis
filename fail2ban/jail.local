@@ -1,0 +1,16 @@
+[sshd]
+enabled = true
+port = 2222
+filter = sshd
+logpath = /var/log/callis-sshd/callis/auth.log
+maxretry = 3
+findtime = 600
+bantime = 86400
+
+[recidive]
+enabled = true
+logpath = /var/log/fail2ban.log
+banaction = %(banaction_allports)s
+maxretry = 3
+findtime = 86400
+bantime = -1

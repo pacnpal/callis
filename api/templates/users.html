@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Users - Callis{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>Users</h2>
+  <button data-dialog-open="add-user-dialog">Add User</button>
+</div>
+
+<dialog id="add-user-dialog">
+  <article>
+    <header>
+      <button aria-label="Close" data-dialog-close></button>
+      <h3>Create User</h3>
+    </header>
+    <form method="post" action="/users">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" required pattern="[a-z][a-z0-9_\-]{0,31}" title="Lowercase letters, numbers, hyphens, underscores. Must start with a letter. Max 32 chars." placeholder="johndoe">
+
+      <label for="display_name">Display Name</label>
+      <input type="text" id="display_name" name="display_name" placeholder="John Doe">
+
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" placeholder="john@example.com">
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required minlength="8">
+
+      <label for="role">Role</label>
+      <select id="role" name="role">
+        <option value="readonly">Read Only</option>
+        <option value="operator">Operator</option>
+        <option value="admin">Admin</option>
+      </select>
+
+      <button type="submit">Create User</button>
+    </form>
+  </article>
+</dialog>
+
+<figure>
+  <table>
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Display Name</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Keys</th>
+        <th>Created</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="user-table-body">
+      {% for u in users %}
+      <tr id="user-row-{{ u.id }}">
+        <td><a href="/users/{{ u.id }}">{{ u.username }}</a></td>
+        <td>{{ u.display_name }}</td>
+        <td><span class="badge badge-{{ u.role.value }}">{{ u.role.value }}</span></td>
+        <td>
+          {% if u.is_active %}
+            <span class="badge badge-active">Active</span>
+          {% else %}
+            <span class="badge badge-inactive">Inactive</span>
+          {% endif %}
+        </td>
+        <td>{{ key_counts.get(u.id, 0) }}</td>
+        <td class="text-small">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+        <td class="actions">
+          {% if u.id != user.id %}
+            {% if u.is_active %}
+              <form method="post" action="/users/{{ u.id }}/deactivate"
+                    hx-post="/users/{{ u.id }}/deactivate" hx-target="#user-row-{{ u.id }}" hx-swap="outerHTML">
+                <button type="submit" class="outline secondary">Deactivate</button>
+              </form>
+            {% else %}
+              <form method="post" action="/users/{{ u.id }}/activate"
+                    hx-post="/users/{{ u.id }}/activate" hx-target="#user-row-{{ u.id }}" hx-swap="outerHTML">
+                <button type="submit" class="outline">Activate</button>
+              </form>
+            {% endif %}
+            <form method="post" action="/users/{{ u.id }}/delete"
+                  hx-delete="/users/{{ u.id }}" hx-target="#user-row-{{ u.id }}" hx-swap="outerHTML"
+                  hx-confirm="Delete user {{ u.username }}? This cannot be undone.">
+              <button type="submit" class="outline contrast">Delete</button>
+            </form>
+          {% else %}
+            <span class="text-muted text-small">(you)</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</figure>
+{% endblock %}

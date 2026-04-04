@@ -119,8 +119,8 @@ Always commit both `pyproject.toml` and `uv.lock`.
 
 - Python: follow PEP 8. Use type hints everywhere.
 - Templates: Jinja2, 2-space indent, semantic HTML.
-- No inline styles in templates. All styling via Pico CSS classes or a minimal `static/style.css`.
-- No JavaScript files. All interactivity via htmx attributes in templates.
+- No inline styles in templates. All styling via Pico CSS classes or `static/style.css`. CSP `style-src` does not allow `'unsafe-inline'`.
+- No inline JavaScript. Dialog open/close is handled by `static/app.js` using `data-dialog-open` and `data-dialog-close` attributes. All other interactivity via htmx.
 
 ---
 
@@ -131,7 +131,7 @@ cd api
 uv run pytest
 ```
 
-Tests live in `api/tests/`. Every route should have at minimum:
+No test suite exists yet. When adding tests, place them in `api/tests/`. Every route should have at minimum:
 - A test for unauthenticated access (should redirect to login)
 - A test for insufficient role (should return 403)
 - A test for the happy path
@@ -142,8 +142,8 @@ Tests live in `api/tests/`. Every route should have at minimum:
 
 Add to `.env`:
 ```env
-DEV_MODE=true          # Enables uvicorn --reload, disables Secure cookie flag
+DEV_MODE=true          # Enables verbose SQL logging
 LOG_LEVEL=debug        # Verbose logging
 ```
 
-**Important:** `DEV_MODE=true` disables the `Secure` flag on cookies so the UI works over plain HTTP during local dev. Never use `DEV_MODE=true` in production.
+**Note:** Cookie `Secure` flag is controlled by `HTTPS_ENABLED`, not `DEV_MODE`. For local HTTP dev, ensure `HTTPS_ENABLED=false` (the default).

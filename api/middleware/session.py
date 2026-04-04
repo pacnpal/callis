@@ -1,0 +1,57 @@
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+from sqlalchemy import select
+
+from core import decode_jwt, get_session_factory, refresh_jwt, get_settings
+from models import User
+
+
+class SessionMiddleware(BaseHTTPMiddleware):
+    # Paths that don't need session loading
+    _SKIP_PATHS = ("/static/", "/health")
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        request.state.user = None
+
+        # Skip session loading for static assets and health checks
+        path = request.url.path
+        if any(path.startswith(p) for p in self._SKIP_PATHS):
+            return await call_next(request)
+
+        token = request.cookies.get("callis_session")
+        if token:
+            payload = decode_jwt(token)
+            if payload:
+                user_id = payload.get("sub")
+                if user_id:
+                    factory = get_session_factory()
+                    async with factory() as db:
+                        result = await db.execute(
+                            select(User).where(User.id == user_id)
+                        )
+                        user = result.scalar_one_or_none()
+                        if user and user.is_active:
+                            request.state.user = user
+
+        response = await call_next(request)
+
+        # Refresh idle timeout by re-signing JWT with updated last_activity
+        # Skip if the response already sets/deletes the session cookie (e.g. login/logout)
+        has_session_cookie_change = any(
+            "callis_session" in h for h in response.headers.getlist("set-cookie")
+        )
+        if request.state.user and token and not has_session_cookie_change:
+            new_token = refresh_jwt(token)
+            if new_token:
+                settings = get_settings()
+                response.set_cookie(
+                    "callis_session",
+                    new_token,
+                    httponly=True,
+                    secure=settings.HTTPS_ENABLED,
+                    samesite="strict",
+                    path="/",
+                )
+
+        return response
