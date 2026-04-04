@@ -89,7 +89,7 @@ callis/
 
 ### Key conventions
 
-- **Route protection:** Always use approved dependencies such as `Depends(require_totp_complete)`, `Depends(require_role("operator"))`, or `Depends(require_role("admin"))`, as appropriate for the route. Never check roles inline or access `request.state.user` directly.
+- **Route protection:** Always use approved dependencies such as `Depends(require_totp_complete)` (or `Depends(require_totp)` if that is the alias/canonical name in the current code/docs), `Depends(require_role("operator"))`, or `Depends(require_role("admin"))`, as appropriate for the route. Verify the exact TOTP dependency name against the repository and documentation before using it. Never check roles inline or access `request.state.user` directly.
 - **Database access:** Use `Depends(get_db)` for sessions.
 - **Audit logging:** Every admin action and security event must call `write_audit_log()` from `core.py`.
 - **Templates:** 2-space indent, semantic HTML. No inline styles (use Pico classes or `static/style.css`). No inline JS — CSP blocks `unsafe-inline`. Use htmx attributes and native HTML behavior for interactivity.
