@@ -2,7 +2,7 @@
 enabled = true
 port = 2222
 filter = sshd
-logpath = /var/log/callis-sshd/callis/auth.log
+logpath = /var/log/callis-sshd/auth.log
 maxretry = 3
 findtime = 600
 bantime = 86400

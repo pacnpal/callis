@@ -29,9 +29,7 @@ document.addEventListener("click", function (e) {
     setTimeout(function () { btn.textContent = orig; }, 2000);
   }
 
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(onSuccess);
-  } else {
+  function fallbackCopy() {
     var ta = document.createElement("textarea");
     ta.value = text;
     ta.style.position = "fixed";
@@ -40,6 +38,12 @@ document.addEventListener("click", function (e) {
     ta.select();
     try { document.execCommand("copy"); onSuccess(); } catch (_) {}
     document.body.removeChild(ta);
+  }
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(onSuccess).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
   }
 });
 
