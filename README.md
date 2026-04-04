@@ -202,9 +202,6 @@ labels:
 The SSH jump port (default 2222) is **not** proxied — it must be forwarded at the network/firewall level:
 
 ```bash
-# Example: iptables
-iptables -t nat -A PREROUTING -p tcp --dport 2222 -j REDIRECT --to-port 2222
-
 # Or simply expose it in docker-compose.yml (already the default):
 ports:
   - "2222:22"

@@ -36,7 +36,9 @@ document.addEventListener("click", function (e) {
     ta.style.opacity = "0";
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand("copy"); onSuccess(); } catch (_) {}
+    try {
+      if (document.execCommand("copy")) onSuccess();
+    } catch (_) {}
     document.body.removeChild(ta);
   }
 
