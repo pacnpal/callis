@@ -107,7 +107,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **NFR-SEC-03** — The API's internal key-serving endpoint (`/internal/keys/{username}`) MUST be bound to a separate internal port not exposed outside the Docker network. It MUST NOT be accessible via the public-facing web UI port.
 - **NFR-SEC-04** — All HTTP responses MUST include security headers: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Strict-Transport-Security` (when behind TLS).
 - **NFR-SEC-05** — The Content Security Policy MUST disallow inline scripts and restrict script sources to the CDN allowlist (htmx, Pico CSS).
-- **NFR-SEC-06** — Stack traces and internal error details MUST NEVER be exposed to the browser. All errors MUST render a generic error page.
+- **NFR-SEC-06** — Stack traces and internal error details MUST NEVER be exposed to the browser. Unexpected errors (5xx) MUST render a generic error page; expected HTTP errors (4xx) MAY include a user-safe detail message.
 - **NFR-SEC-07** — User IDs in URLs MUST use opaque UUIDs, not sequential integers.
 - **NFR-SEC-08** — Fail2ban MUST be included as an optional sidecar (opt-in via Compose profile) that watches sshd logs and bans IPs after 3 failed attempts within 10 minutes. Ban duration: 24 hours first offense, permanent after 3 offenses (recidive).
 

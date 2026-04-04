@@ -136,7 +136,7 @@ USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 RESERVED_USERNAMES = frozenset({
     "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail",
     "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats",
-    "nobody", "sshd", "admin", "guest", "operator", "test",
+    "nobody", "sshd", "guest", "operator", "test",
 })
 
 

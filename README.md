@@ -8,7 +8,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 
 ## Features
 
-- Hardened OpenSSH jump server (Ed25519 and RSA 4096+, no passwords, no shell)
+- Hardened OpenSSH jump server (Ed25519 host key; Ed25519 or RSA 4096+ user keys; no passwords, no shell)
 - Web UI built with FastAPI + Jinja2 + htmx — no build step, no Node.js
 - Per-user OS accounts with instant key revocation
 - Mandatory TOTP 2FA for all web UI users
@@ -107,7 +107,7 @@ volumes:
 **Next steps:**
 
 6. Go to **Users** and create accounts for your team
-7. Each user should log in, set up TOTP, then go to **My Keys** to upload SSH public keys
+7. Each user should log in, set up TOTP, then go to **My Profile** to upload SSH public keys
 8. Go to **Hosts** and add your internal servers as jump targets
 9. **Assign users to hosts** — use the assignment dropdown on each host row to grant access (users can only jump to hosts they're assigned to)
 10. Users can now SSH through Callis to reach their assigned hosts
@@ -202,9 +202,6 @@ labels:
 The SSH jump port (default 2222) is **not** proxied — it must be forwarded at the network/firewall level:
 
 ```bash
-# Example: iptables
-iptables -t nat -A PREROUTING -p tcp --dport 2222 -j REDIRECT --to-port 2222
-
 # Or simply expose it in docker-compose.yml (already the default):
 ports:
   - "2222:22"

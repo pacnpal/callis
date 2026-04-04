@@ -89,7 +89,7 @@
         <td>
           <details>
             <summary class="text-small">Show</summary>
-            <pre class="ssh-config">Host {{ host.label | slugify }}
+            <pre class="ssh-config">Host {{ host.label | slugify }}-{{ host.id[:6] }}
     HostName {{ host.hostname }}
     Port {{ host.port }}
     ProxyJump {{ user.username }}@{{ ssh_host }}:{{ settings.SSH_PORT }}</pre>

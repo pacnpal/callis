@@ -12,6 +12,43 @@ document.addEventListener("click", function (e) {
   }
 });
 
+// Copy-to-clipboard handler (SSH config and other copyable blocks)
+// Uses navigator.clipboard when available (requires HTTPS), falls back to
+// execCommand('copy') for HTTP/LAN deployments.
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest("[data-copy-trigger]");
+  if (!btn) return;
+  var targetId = btn.getAttribute("data-copy-trigger");
+  var target = document.querySelector('[data-copy-target="' + targetId + '"]');
+  if (!target) return;
+  var text = target.textContent;
+
+  function onSuccess() {
+    var orig = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(function () { btn.textContent = orig; }, 2000);
+  }
+
+  function fallbackCopy() {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      if (document.execCommand("copy")) onSuccess();
+    } catch (_) {}
+    document.body.removeChild(ta);
+  }
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(onSuccess).catch(fallbackCopy);
+  } else {
+    fallbackCopy();
+  }
+});
+
 // Host user assignment: auto-submit on select change
 document.addEventListener("change", function (e) {
   var sel = e.target.closest(".assign-select");

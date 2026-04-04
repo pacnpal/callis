@@ -28,14 +28,14 @@ KEYS=$(curl -sf --max-time 5 \
 if [ -n "$KEYS" ]; then
     if ! id -- "$USERNAME" >/dev/null 2>&1; then
         NOLOGIN_SHELL=$(command -v nologin 2>/dev/null || echo /usr/sbin/nologin)
-        if command -v useradd >/dev/null 2>&1; then
-            useradd --no-create-home --shell "$NOLOGIN_SHELL" -- "$USERNAME" 2>/dev/null || true
+        if command -v adduser >/dev/null 2>&1 && ! command -v useradd >/dev/null 2>&1; then
+            adduser -D -H -s "$NOLOGIN_SHELL" "$USERNAME" 2>/dev/null || true
         else
-            adduser -D -H -s "$NOLOGIN_SHELL" -- "$USERNAME" 2>/dev/null || true
+            useradd --no-create-home --shell "$NOLOGIN_SHELL" "$USERNAME" 2>/dev/null || true
         fi
     fi
     # Only output keys if the OS user exists (adduser may have failed)
-    if id -- "$USERNAME" >/dev/null 2>&1; then
+    if id "$USERNAME" >/dev/null 2>&1; then
         printf '%s\n' "$KEYS"
     fi
 fi

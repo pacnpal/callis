@@ -1,7 +1,7 @@
 FROM alpine:3.20
 
 RUN apk add --no-cache openssh curl openssl && \
-    mkdir -p /etc/ssh/host_keys /var/log
+    mkdir -p /etc/ssh/host_keys /var/log /var/run/sshd
 
 COPY sshd_config /etc/ssh/sshd_config
 COPY auth-keys.sh /etc/ssh/auth-keys.sh

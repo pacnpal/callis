@@ -9,8 +9,13 @@
 </head>
 <body>
   <main class="container error-page">
+    {% if error %}
+    <h1>Error</h1>
+    <p>{{ error }}</p>
+    {% else %}
     <h1>Something went wrong</h1>
     <p>An unexpected error occurred. Please try again later.</p>
+    {% endif %}
     <p><a href="/dashboard" role="button">Return to Dashboard</a></p>
   </main>
 </body>

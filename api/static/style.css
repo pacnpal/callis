@@ -64,6 +64,10 @@ table { font-size: 0.9em; }
 .pagination { display: flex; justify-content: center; gap: 0.5rem; }
 .pagination-info { padding: 0.5rem; }
 .error-page { text-align: center; padding-top: 4rem; }
+.ssh-config-section { margin-top: 1rem; }
+.ssh-config-actions { display: flex; justify-content: flex-end; margin-bottom: 0.5rem; }
+.ssh-config-host { margin-bottom: 1rem; }
+.ssh-config-host-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; }
 .callis-footer { display: flex; justify-content: space-between; align-items: center; }
 .github-link { color: var(--pico-muted-color); text-decoration: none; }
 .github-link:hover { color: var(--pico-primary); }
