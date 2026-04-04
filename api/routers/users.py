@@ -1,5 +1,3 @@
-import re
-
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -7,16 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_settings, hash_password, parse_ssh_public_key, write_audit_log
-from dependencies import require_admin_or_self, require_role, require_totp_complete
+from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_settings, hash_password, parse_ssh_public_key, write_audit_log
+from dependencies import require_admin_or_self, require_role
 from models import AuditAction, SSHKey, User, UserRole
-
-_USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-_RESERVED_USERNAMES = frozenset({
-    "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail",
-    "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats",
-    "nobody", "sshd", "admin", "guest", "operator", "test",
-})
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -116,9 +107,9 @@ async def create_user(
 
     # Server-side username validation
     username = username.lower().strip()
-    if not _USERNAME_RE.match(username):
+    if not USERNAME_RE.match(username):
         return await _form_error("Username must be 1-32 lowercase alphanumeric characters, hyphens, or underscores, starting with a letter.")
-    if username in _RESERVED_USERNAMES:
+    if username in RESERVED_USERNAMES:
         return await _form_error(f"Username '{username}' is reserved")
 
     # Server-side password validation

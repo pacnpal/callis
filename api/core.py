@@ -115,6 +115,14 @@ def slugify(value: str) -> str:
     return slug or "host"
 
 
+USERNAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+RESERVED_USERNAMES = frozenset({
+    "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail",
+    "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats",
+    "nobody", "sshd", "admin", "guest", "operator", "test",
+})
+
+
 def register_template_filters(jinja_templates) -> None:
     """Register custom Jinja2 filters on a Templates instance."""
     jinja_templates.env.filters["slugify"] = slugify

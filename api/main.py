@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core import get_db, get_engine, get_session_factory, get_settings, hash_password, limiter, register_template_filters
+from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_engine, get_session_factory, get_settings, hash_password, limiter, register_template_filters
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from models import AuditLog, Base, Host, SSHKey, User, UserRole
@@ -174,12 +174,10 @@ async def _init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    _username_re = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-    _reserved = {"root", "daemon", "bin", "sys", "nobody", "sshd", "guest", "test"}
     admin_username = settings.ADMIN_USERNAME.lower().strip()
-    if not _username_re.match(admin_username):
+    if not USERNAME_RE.match(admin_username):
         raise ValueError(f"ADMIN_USERNAME '{settings.ADMIN_USERNAME}' is invalid.")
-    if admin_username in _reserved:
+    if admin_username in RESERVED_USERNAMES:
         raise ValueError(f"ADMIN_USERNAME '{admin_username}' is a reserved system name.")
 
     factory = get_session_factory()
