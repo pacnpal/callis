@@ -181,8 +181,19 @@ def decrypt_totp_secret(encrypted: str) -> str:
 
 def verify_totp(secret: str, code: str) -> bool:
     totp = pyotp.TOTP(secret)
-    expected = totp.now()
-    return secrets.compare_digest(expected, code)
+    submitted = code.strip()
+    valid_format = submitted.isdigit() and len(submitted) == 6
+    normalized_code = submitted if valid_format else "000000"
+
+    # Check current and adjacent time steps (±1) for clock skew tolerance
+    # Always compare all steps to maintain constant-time behavior
+    now = datetime.now(timezone.utc).timestamp()
+    matched = False
+    for step_offset in (-1, 0, 1):
+        expected = totp.at(now + (step_offset * totp.interval))
+        matched |= secrets.compare_digest(expected, normalized_code)
+
+    return valid_format and matched
 
 
 def get_totp_uri(secret: str, username: str) -> str:
@@ -263,7 +274,7 @@ def _check_rsa_key_size(key_data: bytes, min_bits: int) -> None:
         raise ValueError("Truncated RSA key data")
     n_bytes = key_data[offset : offset + n_len]
 
-    # Key size in bits (strip leading zero byte if present)
+    # Key size in bits (strip leading zero byte from mpint, then use actual bit length)
     if n_bytes and n_bytes[0] == 0:
         n_bytes = n_bytes[1:]
     key_bits = int.from_bytes(n_bytes, "big").bit_length()

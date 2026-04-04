@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -12,7 +12,8 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import select, func
 
-from core import get_engine, get_session_factory, get_settings, hash_password
+from core import get_db, get_engine, get_session_factory, get_settings, hash_password
+from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from models import AuditLog, Base, Host, SSHKey, User, UserRole
 from routers import auth, users, hosts, audit
@@ -91,64 +92,58 @@ app.include_router(audit.router)
 
 # Dashboard
 @app.get("/dashboard")
-async def dashboard(request: Request):
+async def dashboard(
+    request: Request,
+    user: User = Depends(require_totp_complete),
+    db=Depends(get_db),
+):
     from sqlalchemy.orm import selectinload
 
-    user = getattr(request.state, "user", None)
-    if not user:
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/login", status_code=303)
-    if not user.totp_enrolled:
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/totp/setup", status_code=303)
+    settings = get_settings()
 
-    factory = get_session_factory()
-    async with factory() as db:
-        settings = get_settings()
+    # Stats
+    active_users_result = await db.execute(
+        select(func.count()).select_from(User).where(User.is_active == True)
+    )
+    active_users = active_users_result.scalar()
 
-        # Stats
-        active_users_result = await db.execute(
-            select(func.count()).select_from(User).where(User.is_active == True)
+    active_hosts_result = await db.execute(
+        select(func.count()).select_from(Host).where(Host.is_active == True)
+    )
+    active_hosts = active_hosts_result.scalar()
+
+    key_count_result = await db.execute(
+        select(func.count()).select_from(SSHKey).where(
+            SSHKey.user_id == user.id, SSHKey.is_active == True
         )
-        active_users = active_users_result.scalar()
+    )
+    user_key_count = key_count_result.scalar()
 
-        active_hosts_result = await db.execute(
-            select(func.count()).select_from(Host).where(Host.is_active == True)
-        )
-        active_hosts = active_hosts_result.scalar()
+    # Recent audit (last 10)
+    audit_result = await db.execute(
+        select(AuditLog)
+        .options(selectinload(AuditLog.actor))
+        .order_by(AuditLog.timestamp.desc())
+        .limit(10)
+    )
+    recent_audit = audit_result.scalars().all()
 
-        key_count_result = await db.execute(
-            select(func.count()).select_from(SSHKey).where(
-                SSHKey.user_id == user.id, SSHKey.is_active == True
-            )
-        )
-        user_key_count = key_count_result.scalar()
+    # SSH host for config snippet
+    ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
 
-        # Recent audit (last 10)
-        audit_result = await db.execute(
-            select(AuditLog)
-            .options(selectinload(AuditLog.actor))
-            .order_by(AuditLog.timestamp.desc())
-            .limit(10)
-        )
-        recent_audit = audit_result.scalars().all()
-
-        # SSH host for config snippet
-        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
-
-        return templates.TemplateResponse(
-            "dashboard.html",
-            {
-                "request": request,
-                "user": user,
-                "active_users": active_users,
-                "active_hosts": active_hosts,
-                "user_key_count": user_key_count,
-                "recent_audit": recent_audit,
-                "ssh_host": ssh_host,
-                "ssh_port": settings.SSH_PORT,
-            },
-        )
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "user": user,
+            "active_users": active_users,
+            "active_hosts": active_hosts,
+            "user_key_count": user_key_count,
+            "recent_audit": recent_audit,
+            "ssh_host": ssh_host,
+            "ssh_port": settings.SSH_PORT,
+        },
+    )
 
 
 # Root redirect
