@@ -5,10 +5,8 @@ from datetime import datetime, timezone
 
 import qrcode
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +19,7 @@ from core import (
     get_settings,
     get_totp_uri,
     hash_password,
+    limiter,
     verify_password,
     verify_totp,
     write_audit_log,
@@ -30,7 +29,6 @@ from models import AuditAction, User
 
 logger = logging.getLogger("callis")
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 templates = Jinja2Templates(directory="templates")
 
 # Precomputed dummy hash for constant-time login checks (avoid hashing on every failed attempt)

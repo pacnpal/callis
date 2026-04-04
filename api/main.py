@@ -7,12 +7,11 @@ import uvicorn
 from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy import select, func
 
-from core import get_db, get_engine, get_session_factory, get_settings, hash_password
+from core import get_db, get_engine, get_session_factory, get_settings, hash_password, limiter
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from models import AuditLog, Base, Host, SSHKey, User, UserRole
@@ -71,7 +70,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 
 # Rate limiter
-limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

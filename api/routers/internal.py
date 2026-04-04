@@ -1,13 +1,9 @@
-import logging
-
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 
 from core import get_session_factory
 from models import Host, SSHKey, User, user_host_assignment
-
-logger = logging.getLogger("callis")
 
 internal_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 router = APIRouter()

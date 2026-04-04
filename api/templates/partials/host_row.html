@@ -13,7 +13,7 @@
     {% for u in host.assigned_users %}
       <span class="badge">{{ u.username }}
         {% if user.role.value == "admin" %}
-        <button type="button" hx-post="/hosts/{{ host.id }}/unassign/{{ u.id }}" hx-target="#host-row-{{ host.id }}" hx-swap="outerHTML" hx-confirm="Unassign {{ u.username }}?">&times;</button>
+        <button type="button" class="unassign-btn" hx-post="/hosts/{{ host.id }}/unassign/{{ u.id }}" hx-target="#host-row-{{ host.id }}" hx-swap="outerHTML" hx-confirm="Unassign {{ u.username }}?">&times;</button>
         {% endif %}
       </span>
     {% else %}

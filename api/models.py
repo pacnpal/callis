@@ -13,7 +13,6 @@ from sqlalchemy import (
     String,
     Table,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
 

@@ -100,6 +100,16 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Rate limiter (shared instance for app and routers)
+# ---------------------------------------------------------------------------
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
+
+
+# ---------------------------------------------------------------------------
 # JWT
 # ---------------------------------------------------------------------------
 

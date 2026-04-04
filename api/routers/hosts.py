@@ -13,6 +13,7 @@ from core import get_db, get_settings, write_audit_log
 from dependencies import require_role, require_totp_complete
 from models import AuditAction, Host, User, UserRole
 
+# Hostnames/IPv4 only; IPv6 literals (with colons) not yet supported
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 logger = logging.getLogger("callis")
