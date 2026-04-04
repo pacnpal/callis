@@ -1,29 +1,17 @@
 services:
-  sshd:
-    build: ./sshd
-    restart: unless-stopped
-    ports:
-      - "${SSH_PORT:-2222}:22"
-    volumes:
-      - callis_hostkeys:/etc/ssh/host_keys
-      - callis_sshd_logs:/var/log
-    networks:
-      - callis
-    depends_on:
-      - api
-
-  api:
-    build: ./api
+  callis:
+    image: ghcr.io/pacnpal/callis:${CALLIS_VERSION:-latest}
+    build: .
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-8080}:8080"
-    # Port 8081 is internal only — NOT exposed to host
+      - "${SSH_PORT:-2222}:22"
     volumes:
       - callis_db:/data
       - callis_audit_logs:/audit
+      - callis_hostkeys:/etc/ssh/host_keys
+      - callis_sshd_logs:/var/log/callis
     env_file: .env
-    networks:
-      - callis
 
   fail2ban:
     image: crazymax/fail2ban:1.1.0
@@ -37,10 +25,6 @@ services:
       - callis_sshd_logs:/var/log/callis-sshd:ro
       - ./fail2ban:/data
     env_file: .env
-
-networks:
-  callis:
-    driver: bridge
 
 volumes:
   callis_db:

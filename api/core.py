@@ -23,6 +23,19 @@ from models import AuditAction, AuditLog
 
 logger = logging.getLogger("callis")
 
+
+def get_app_version() -> str:
+    """Read app version from APP_VERSION env var (set by Docker) or .version file."""
+    import os
+    v = os.environ.get("APP_VERSION", "").strip()
+    if v and v != "dev":
+        return v
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "..", ".version")) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return "dev"
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
@@ -124,8 +137,9 @@ RESERVED_USERNAMES = frozenset({
 
 
 def register_template_filters(jinja_templates) -> None:
-    """Register custom Jinja2 filters on a Templates instance."""
+    """Register custom Jinja2 filters and globals on a Templates instance."""
     jinja_templates.env.filters["slugify"] = slugify
+    jinja_templates.env.globals["app_version"] = get_app_version()
 
 
 # ---------------------------------------------------------------------------

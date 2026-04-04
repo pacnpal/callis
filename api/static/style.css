@@ -64,3 +64,6 @@ table { font-size: 0.9em; }
 .pagination { display: flex; justify-content: center; gap: 0.5rem; }
 .pagination-info { padding: 0.5rem; }
 .error-page { text-align: center; padding-top: 4rem; }
+.callis-footer { display: flex; justify-content: space-between; align-items: center; }
+.github-link { color: var(--pico-muted-color); text-decoration: none; }
+.github-link:hover { color: var(--pico-primary); }

@@ -18,7 +18,8 @@ if ! printf '%s' "$USERNAME" | grep -Eq '^[a-z][a-z0-9_-]{0,31}$'; then
 fi
 
 # Fetch authorized keys from internal API first (before creating OS user)
-KEYS=$(curl -sf --max-time 5 "http://api:8081/internal/keys/${USERNAME}" 2>/dev/null) || true
+API_HOST="${CALLIS_API_HOST:-localhost}"
+KEYS=$(curl -sf --max-time 5 "http://${API_HOST}:8081/internal/keys/${USERNAME}" 2>/dev/null) || true
 
 # Only create the OS user if the API returned keys (prevents /etc/passwd growth from invalid usernames)
 if [ -n "$KEYS" ]; then

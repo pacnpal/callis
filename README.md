@@ -31,10 +31,27 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 
 ## Quick Start
 
+### Option A — Docker Hub / GHCR (recommended)
+
+```bash
+docker pull ghcr.io/pacnpal/callis:latest
+# or: docker pull pacnpal/callis:latest
+# or pin a version: docker pull ghcr.io/pacnpal/callis:0.1.0
+```
+
 ```bash
 git clone https://github.com/pacnpal/callis.git
 cd callis
 cp .env.example .env
+```
+
+### Option B — Build from source
+
+```bash
+git clone https://github.com/pacnpal/callis.git
+cd callis
+cp .env.example .env
+docker compose up -d --build
 ```
 
 Edit `.env` — set these two required values:
@@ -52,6 +69,26 @@ Start Callis:
 
 ```bash
 docker compose up -d
+```
+
+Or use this minimal `docker-compose.yml`:
+
+```yaml
+services:
+  callis:
+    image: ghcr.io/pacnpal/callis:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "2222:22"
+    volumes:
+      - callis_db:/data
+      - callis_hostkeys:/etc/ssh/host_keys
+    env_file: .env
+
+volumes:
+  callis_db:
+  callis_hostkeys:
 ```
 
 - **Web UI:** `http://<your-server-ip>:8080`
@@ -111,33 +148,6 @@ callis.example.com {
 
 SSH port (2222) must be forwarded separately at the network/firewall level.
 
-### Mode C — With Caddy Sidecar (Automatic TLS)
-
-Callis includes a Caddy sidecar that handles TLS automatically via Let's Encrypt.
-
-1. Create a `caddy/Caddyfile`:
-
-```
-{$CALLIS_DOMAIN} {
-    reverse_proxy api:8080
-}
-```
-
-2. Set in `.env`:
-
-```bash
-CALLIS_DOMAIN=callis.example.com
-BASE_URL=https://callis.example.com
-HTTPS_ENABLED=true
-```
-
-3. Start with the Caddy profile:
-
-```bash
-docker compose --profile caddy up -d
-```
-
-Ports 80 and 443 must be reachable from the internet for certificate issuance.
 
 ---
 
@@ -189,7 +199,6 @@ ssh my-internal-server
 | `DEV_MODE` | No | `false` | Enable development mode features (verbose SQL logging) |
 | `LOG_LEVEL` | No | `info` | Logging level |
 | `TZ` | No | `UTC` | Timezone |
-| `CALLIS_DOMAIN` | If Caddy | — | Domain for Caddy TLS (Mode C only) |
 
 ---
 

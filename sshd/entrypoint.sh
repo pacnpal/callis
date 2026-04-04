@@ -22,4 +22,5 @@ fi
 mkdir -p /var/log
 
 echo "Starting sshd..."
-exec /usr/sbin/sshd -D -E /var/log/auth.log
+SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/auth.log}"
+exec /usr/sbin/sshd -D -E "$SSHD_LOG"

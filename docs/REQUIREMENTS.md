@@ -91,7 +91,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-DEPLOY-01** — The full stack MUST be deployable with a single `docker compose up -d` command after copying `.env.example` to `.env` and setting required values.
 - **FR-DEPLOY-02** — The stack MUST work with no domain name on a LAN (accessing the UI via IP and port).
 - **FR-DEPLOY-03** — The stack MUST work behind any standard reverse proxy. Callis MUST NOT assume a specific reverse proxy is present.
-- **FR-DEPLOY-04** — An optional Caddy sidecar MUST be provided for users who want automatic TLS without configuring their own reverse proxy. It MUST be opt-in via Docker Compose profiles.
+- **FR-DEPLOY-04** — The stack MUST work behind any standard reverse proxy (Caddy, Nginx, Traefik). TLS termination is the user's responsibility.
 - **FR-DEPLOY-05** — All configuration MUST be driven by environment variables documented in `.env.example`. No configuration file editing inside containers MUST be required.
 - **FR-DEPLOY-06** — The SSH port and web UI port MUST both be configurable via `.env`.
 - **FR-DEPLOY-07** — The stack MUST support `AUTH_MODE=local` (default) and `AUTH_MODE=oidc`.
