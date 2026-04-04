@@ -74,7 +74,6 @@ AuthorizedKeysCommand /etc/ssh/auth-keys.sh %u
 AuthorizedKeysCommandUser root
 
 HostKey /etc/ssh/host_keys/ssh_host_ed25519_key
-
 KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org
 Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
 MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
@@ -86,13 +85,11 @@ PermitTunnel no
 AllowAgentForwarding no
 PermitTTY no
 ForceCommand /etc/ssh/callis-cmd.sh
-
 MaxAuthTries 2
 LoginGraceTime 15
 ClientAliveInterval 300
 ClientAliveCountMax 2
 LogLevel VERBOSE
-
 Banner /etc/ssh/banner.txt
 ```
 
