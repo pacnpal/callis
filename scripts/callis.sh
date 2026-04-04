@@ -135,5 +135,6 @@ _callis_connect() {
 
     ssh -i "$CALLIS_KEY" \
         -J "${CALLIS_USER}@${CALLIS_HOST}:${CALLIS_PORT}" \
-        "${CALLIS_USER}@${TARGET_HOST}" -p "$TARGET_PORT" "$@"
+        -p "$TARGET_PORT" "$@" \
+        "${CALLIS_USER}@${TARGET_HOST}"
 }

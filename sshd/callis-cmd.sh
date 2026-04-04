@@ -25,6 +25,10 @@ _curl_with_status() {
 case "$CMD" in
   resolve\ *)
     TAG=$(echo "$CMD" | cut -d' ' -f2 | tr -cd 'a-z0-9-')
+    if [ -z "$TAG" ]; then
+      echo "ERR missing or invalid host tag" >&2
+      exit 1
+    fi
     RESULT=$(_curl_with_status \
       "http://${API_HOST}:8081/internal/resolve/${USERNAME}/${TAG}")
     if [ "$HTTP_CODE" = "403" ]; then
