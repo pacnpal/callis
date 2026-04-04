@@ -22,6 +22,18 @@ logger = logging.getLogger("callis")
 
 templates = Jinja2Templates(directory="templates")
 
+
+def _slugify(value: str) -> str:
+    """Convert a string to a safe SSH Host alias (lowercase, alphanumeric + hyphens)."""
+    import re as _re
+    slug = value.lower().strip()
+    slug = _re.sub(r"[^a-z0-9-]+", "-", slug)
+    slug = _re.sub(r"-+", "-", slug).strip("-")
+    return slug or "host"
+
+
+templates.env.filters["slugify"] = _slugify
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------

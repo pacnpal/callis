@@ -21,6 +21,16 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 
+def _slugify(value: str) -> str:
+    slug = value.lower().strip()
+    slug = re.sub(r"[^a-z0-9-]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug or "host"
+
+
+templates.env.filters["slugify"] = _slugify
+
+
 @router.get("/hosts")
 async def host_list(
     request: Request,

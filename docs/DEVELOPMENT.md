@@ -131,7 +131,7 @@ cd api
 uv run pytest
 ```
 
-Tests live in `api/tests/`. Every route should have at minimum:
+No test suite exists yet. When adding tests, place them in `api/tests/`. Every route should have at minimum:
 - A test for unauthenticated access (should redirect to login)
 - A test for insufficient role (should return 403)
 - A test for the happy path

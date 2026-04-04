@@ -222,8 +222,8 @@ def parse_ssh_public_key(key_text: str) -> dict:
     Raises ValueError if invalid or disallowed key type/size.
     """
     key_text = key_text.strip()
-    # Reject control characters (newlines, tabs, etc.) that could inject extra authorized_keys lines
-    if any(c in key_text for c in "\n\r\t\x00"):
+    # Reject all ASCII control characters that could inject authorized_keys lines or cause parsing issues
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in key_text):
         raise ValueError("SSH public key must not contain control characters")
     parts = key_text.split()
     if len(parts) < 2:

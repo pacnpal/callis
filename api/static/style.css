@@ -51,6 +51,7 @@ table { font-size: 0.9em; }
 .assign-select { display: inline-block; width: auto; margin: 0; padding: 0.15em 0.4em; font-size: 0.8em; }
 .unassign-btn { all: unset; cursor: pointer; margin-left: 0.2em; font-size: 0.9em; opacity: 0.6; }
 .unassign-btn:hover { opacity: 1; }
+.unassign-btn:focus-visible { outline: 2px solid var(--pico-primary); outline-offset: 2px; border-radius: var(--pico-border-radius); }
 .btn-sm { margin: 0; padding: 0.3rem 0.6rem; font-size: 0.85em; }
 .auth-card { max-width: 400px; margin: 2rem auto; }
 .totp-card { max-width: 500px; margin: 2rem auto; }
