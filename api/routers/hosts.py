@@ -74,6 +74,13 @@ async def create_host(
             status_code=400,
         )
 
+    # Validate label: strip whitespace, reject empty or control characters
+    label = label.strip()
+    if not label:
+        return await _form_error("Label must not be empty")
+    if any(c in label for c in "\t\n\r"):
+        return await _form_error("Label must not contain tab or newline characters")
+
     # Validate hostname (no quotes, commas, spaces — these would break permitopen options)
     hostname = hostname.strip()
     if not _HOSTNAME_RE.match(hostname) or len(hostname) > 255:

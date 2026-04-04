@@ -175,18 +175,18 @@ async def _init_db():
         await conn.run_sync(Base.metadata.create_all)
 
     admin_username = settings.ADMIN_USERNAME.lower().strip()
+    if not USERNAME_RE.match(admin_username):
+        raise ValueError(f"ADMIN_USERNAME '{settings.ADMIN_USERNAME}' is invalid.")
+    if admin_username in RESERVED_USERNAMES:
+        raise ValueError(
+            f"ADMIN_USERNAME '{admin_username}' is a reserved system name."
+        )
 
     factory = get_session_factory()
     async with factory() as db:
         result = await db.execute(select(func.count()).select_from(User))
         count = result.scalar()
         if count == 0:
-            # Validate format only when seeding. The reserved-name check
-            # guards normal user creation from claiming OS/system names, but
-            # does not apply here -- ADMIN_USERNAME may intentionally use a
-            # name like "admin" that would otherwise be reserved.
-            if not USERNAME_RE.match(admin_username):
-                raise ValueError(f"ADMIN_USERNAME '{settings.ADMIN_USERNAME}' is invalid.")
             admin = User(
                 username=admin_username,
                 display_name="Administrator",

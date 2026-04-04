@@ -20,9 +20,27 @@ fi
 # Fetch authorized keys from internal API first (before creating OS user)
 API_HOST="${CALLIS_API_HOST:-localhost}"
 INTERNAL_SECRET="${CALLIS_INTERNAL_SECRET:-}"
-KEYS=$(curl -sf --max-time 5 \
+KEYS=""
+KEYS_TMP=$(mktemp)
+CURL_EXIT=0
+HTTP_STATUS=$(curl -sS --max-time 5 \
+  -o "$KEYS_TMP" \
+  -w '%{http_code}' \
   -H "X-Internal-Secret: ${INTERNAL_SECRET}" \
-  "http://${API_HOST}:8081/internal/keys/${USERNAME}" 2>/dev/null) || true
+  "http://${API_HOST}:8081/internal/keys/${USERNAME}" 2>/dev/null) || CURL_EXIT=$?
+
+if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_STATUS" = "200" ]; then
+    KEYS=$(cat "$KEYS_TMP")
+else
+    if [ "$HTTP_STATUS" = "403" ]; then
+        printf '%s\n' "auth-keys.sh: internal key lookup forbidden for ${USERNAME} (check CALLIS_INTERNAL_SECRET)" >&2
+    elif [ "$CURL_EXIT" -eq 28 ]; then
+        printf '%s\n' "auth-keys.sh: internal key lookup timed out for ${USERNAME}" >&2
+    elif [ "$CURL_EXIT" -ne 0 ]; then
+        printf '%s\n' "auth-keys.sh: internal key lookup failed for ${USERNAME} (curl exit ${CURL_EXIT})" >&2
+    fi
+fi
+rm -f "$KEYS_TMP"
 
 # Only create the OS user if the API returned keys (prevents /etc/passwd growth from invalid usernames)
 if [ -n "$KEYS" ]; then

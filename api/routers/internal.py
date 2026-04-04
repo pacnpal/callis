@@ -107,6 +107,10 @@ async def get_keys(username: str):
 
 @router.get("/internal/resolve/{username}/{tag}")
 async def resolve_host(username: str, tag: str):
+    # Reject non-slug tags early (callis-cmd.sh sanitizes, but defend in depth)
+    if not tag or slugify(tag) != tag:
+        return PlainTextResponse("invalid tag", status_code=400)
+
     factory = get_session_factory()
     async with factory() as db:
         # Find active user
@@ -172,8 +176,10 @@ async def list_hosts(username: str):
         # Format: tag\thostname\tport\tlabel (one per line)
         lines = []
         for host in assigned_hosts:
+            # Sanitize label to prevent tabs/newlines from breaking the format
+            safe_label = host.label.replace("\t", " ").replace("\n", " ").replace("\r", "")
             lines.append(
-                f"{slugify(host.label)}\t{host.hostname}\t{host.port}\t{host.label}"
+                f"{slugify(host.label)}\t{host.hostname}\t{host.port}\t{safe_label}"
             )
 
         return PlainTextResponse("\n".join(lines) + "\n", status_code=200)
