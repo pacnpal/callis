@@ -50,15 +50,15 @@ _callis_setup() {
     mkdir -p "$CALLIS_CONFIG_DIR"
 
     printf "Callis server hostname: "
-    read CALLIS_HOST
+    read -r CALLIS_HOST
     printf "Callis SSH port [2222]: "
-    read CALLIS_PORT
+    read -r CALLIS_PORT
     CALLIS_PORT="${CALLIS_PORT:-2222}"
     printf "Your Callis username: "
-    read CALLIS_USER
-    printf "Path to your SSH key [~/.ssh/id_ed25519]: "
-    read CALLIS_KEY
-    CALLIS_KEY="${CALLIS_KEY:-~/.ssh/id_ed25519}"
+    read -r CALLIS_USER
+    printf "Path to your SSH key [$HOME/.ssh/id_ed25519]: "
+    read -r CALLIS_KEY
+    CALLIS_KEY="${CALLIS_KEY:-$HOME/.ssh/id_ed25519}"
 
     # Write values as plain key=value pairs (not sourced — parsed safely below)
     {
@@ -86,6 +86,11 @@ _callis_load_config() {
             CALLIS_KEY=*)  CALLIS_KEY="${line#CALLIS_KEY=}"  ;;
         esac
     done < "$CALLIS_CONFIG_FILE"
+    # Expand a leading ~ in the key path (for backwards compatibility)
+    case "$CALLIS_KEY" in
+        "~")   CALLIS_KEY="$HOME" ;;
+        "~/"*) CALLIS_KEY="$HOME/${CALLIS_KEY#~/}" ;;
+    esac
 }
 
 _callis_list() {

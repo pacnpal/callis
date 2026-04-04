@@ -22,9 +22,19 @@ case "$CMD" in
     fi
     ;;
   list)
-    curl -sf --max-time 5 \
+    CURL_EXIT=0
+    RESULT=$(curl -sf --max-time 5 \
       -H "X-Internal-Secret: ${INTERNAL_SECRET}" \
-      "http://${API_HOST}:8081/internal/hosts/${USERNAME}" 2>/dev/null
+      "http://${API_HOST}:8081/internal/hosts/${USERNAME}" 2>/dev/null) || CURL_EXIT=$?
+    if [ -n "$RESULT" ]; then
+      printf '%s\n' "$RESULT"
+    elif [ "$CURL_EXIT" -ne 0 ]; then
+      echo "ERR service unavailable" >&2
+      exit 1
+    else
+      echo "No hosts assigned to user" >&2
+      exit 2
+    fi
     ;;
   *)
     echo "This account is not available." >&2

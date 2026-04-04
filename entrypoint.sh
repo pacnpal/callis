@@ -4,6 +4,7 @@ set -e
 # Set defaults for unified container
 export CALLIS_API_HOST="${CALLIS_API_HOST:-localhost}"
 export CALLIS_SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/callis/auth.log}"
+export LOG_LEVEL="${LOG_LEVEL:-info}"
 
 # Derive internal API shared secret from SECRET_KEY via HMAC-SHA256
 if [ -n "${SECRET_KEY:-}" ] && [ -z "${CALLIS_INTERNAL_SECRET:-}" ]; then

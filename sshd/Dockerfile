@@ -1,6 +1,6 @@
 FROM alpine:3.20
 
-RUN apk add --no-cache openssh curl && \
+RUN apk add --no-cache openssh curl openssl && \
     mkdir -p /etc/ssh/host_keys /var/log
 
 COPY sshd_config /etc/ssh/sshd_config
