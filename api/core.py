@@ -211,6 +211,9 @@ def parse_ssh_public_key(key_text: str) -> dict:
     Raises ValueError if invalid or disallowed key type/size.
     """
     key_text = key_text.strip()
+    # Reject control characters (newlines, tabs, etc.) that could inject extra authorized_keys lines
+    if any(c in key_text for c in "\n\r\t\x00"):
+        raise ValueError("SSH public key must not contain control characters")
     parts = key_text.split()
     if len(parts) < 2:
         raise ValueError("Invalid SSH public key format")
@@ -245,10 +248,14 @@ def parse_ssh_public_key(key_text: str) -> dict:
     digest = hashlib.sha256(key_data).digest()
     fingerprint = "SHA256:" + base64.b64encode(digest).rstrip(b"=").decode()
 
+    # Reconstruct from parsed tokens to guarantee single-line output
+    comment = " ".join(parts[2:]) if len(parts) > 2 else ""
+    clean_key = f"{key_type_str} {key_data_b64}" + (f" {comment}" if comment else "")
+
     return {
         "key_type": key_type_str,
         "fingerprint": fingerprint,
-        "public_key_text": key_text,
+        "public_key_text": clean_key,
     }
 
 

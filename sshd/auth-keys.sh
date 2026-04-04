@@ -21,10 +21,13 @@ if [ "${#USERNAME}" -gt 32 ]; then
     exit 0
 fi
 
-# Create OS user on-the-fly if they don't exist (nologin shell, no password)
-if ! id -- "$USERNAME" >/dev/null 2>&1; then
-    adduser -D -s /sbin/nologin -- "$USERNAME" 2>/dev/null || true
-fi
+# Fetch authorized keys from internal API first (before creating OS user)
+KEYS=$(curl -sf --max-time 5 "http://api:8081/internal/keys/${USERNAME}" 2>/dev/null) || true
 
-# Fetch authorized keys from internal API
-curl -sf --max-time 5 "http://api:8081/internal/keys/${USERNAME}" 2>/dev/null || true
+# Only create the OS user if the API returned keys (prevents /etc/passwd growth from invalid usernames)
+if [ -n "$KEYS" ]; then
+    if ! id -- "$USERNAME" >/dev/null 2>&1; then
+        adduser -D -H -s /sbin/nologin -- "$USERNAME" 2>/dev/null || true
+    fi
+    printf '%s\n' "$KEYS"
+fi
