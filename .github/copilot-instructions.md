@@ -63,7 +63,7 @@ callis/
 │   ├── main.py                 # App factory, mounts routers and middleware
 │   ├── core.py                 # Config, DB session, security utilities, audit logging
 │   ├── models.py               # All SQLAlchemy models (User, SSHKey, Host, AuditLog)
-│   ├── dependencies.py         # Auth dependencies: require_role(), require_totp_complete
+│   ├── dependencies.py         # Auth dependencies: require_role(), require_totp
 │   ├── middleware/
 │   │   ├── security_headers.py # CSP, HSTS, X-Frame-Options
 │   │   ├── session.py          # JWT cookie validation
