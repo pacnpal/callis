@@ -13,7 +13,7 @@ case "$CMD" in
     TAG=$(echo "$CMD" | cut -d' ' -f2 | tr -cd 'a-z0-9-')
     RESULT=$(curl -sf --max-time 5 \
       -H "X-Internal-Secret: ${INTERNAL_SECRET}" \
-      "http://${API_HOST}:8081/internal/resolve/${USERNAME}/${TAG}" 2>/dev/null)
+      "http://${API_HOST}:8081/internal/resolve/${USERNAME}/${TAG}" 2>/dev/null || true)
     if [ -n "$RESULT" ]; then
       echo "$RESULT"
     else

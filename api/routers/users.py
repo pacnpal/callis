@@ -5,12 +5,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_settings, hash_password, parse_ssh_public_key, write_audit_log
+from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_settings, hash_password, parse_ssh_public_key, register_template_filters, write_audit_log
 from dependencies import require_admin_or_self, require_role
 from models import AuditAction, SSHKey, User, UserRole
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+register_template_filters(templates)
 
 
 @router.get("/users")

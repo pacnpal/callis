@@ -65,14 +65,13 @@ Inline scripts are disallowed by CSP. htmx is loaded from a CDN allowlisted in t
 ### sshd_config (non-negotiable settings)
 
 ```
-Protocol 2
 PermitRootLogin no
 PasswordAuthentication no
-ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 AuthorizedKeysFile none
 AuthorizedKeysCommand /etc/ssh/auth-keys.sh %u
-AuthorizedKeysCommandUser nobody
+AuthorizedKeysCommandUser root
 
 HostKey /etc/ssh/host_keys/ssh_host_ed25519_key
 
@@ -80,11 +79,11 @@ KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org
 Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
 MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
 
-AllowTcpForwarding yes
+AllowTcpForwarding local
 GatewayPorts no
 X11Forwarding no
 PermitTunnel no
-AllowAgentForwarding yes
+AllowAgentForwarding no
 PermitTTY no
 ForceCommand /etc/ssh/callis-cmd.sh
 

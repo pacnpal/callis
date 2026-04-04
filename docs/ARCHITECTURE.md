@@ -56,7 +56,7 @@ Key files:
 
 The application is split across two listeners:
 - **Port 8080** — public-facing web UI and all authenticated routes
-- **Port 8081** — internal-only, bound to `127.0.0.1` within the Docker network. Serves `/internal/keys/{username}`, `/internal/resolve/{username}/{tag}`, and `/internal/hosts/{username}`. All requests require a valid `X-Internal-Secret` header. This port MUST NOT be exposed in `docker-compose.yml`.
+- **Port 8081** — internal-only listener. Serves `/internal/keys/{username}`, `/internal/resolve/{username}/{tag}`, and `/internal/hosts/{username}`. The Uvicorn process binds to `0.0.0.0`; isolation is enforced by not exposing this port in `docker-compose.yml` (Docker network boundary) combined with the mandatory `X-Internal-Secret` header for every request. This port MUST NOT be published in `docker-compose.yml`.
 
 **Framework stack:**
 - FastAPI — routing, dependency injection, request handling

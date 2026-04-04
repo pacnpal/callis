@@ -60,12 +60,14 @@ _callis_setup() {
     read CALLIS_KEY
     CALLIS_KEY="${CALLIS_KEY:-~/.ssh/id_ed25519}"
 
-    cat > "$CALLIS_CONFIG_FILE" <<EOF
-CALLIS_HOST=${CALLIS_HOST}
-CALLIS_PORT=${CALLIS_PORT}
-CALLIS_USER=${CALLIS_USER}
-CALLIS_KEY=${CALLIS_KEY}
-EOF
+    # Write values as plain key=value pairs (not sourced — parsed safely below)
+    {
+        printf 'CALLIS_HOST=%s\n' "$CALLIS_HOST"
+        printf 'CALLIS_PORT=%s\n' "$CALLIS_PORT"
+        printf 'CALLIS_USER=%s\n' "$CALLIS_USER"
+        printf 'CALLIS_KEY=%s\n'  "$CALLIS_KEY"
+    } > "$CALLIS_CONFIG_FILE"
+    chmod 600 "$CALLIS_CONFIG_FILE"
 
     echo "Configuration saved to ${CALLIS_CONFIG_FILE}"
 }
@@ -75,7 +77,15 @@ _callis_load_config() {
         echo "Error: not configured. Run 'callis setup' first." >&2
         return 1
     fi
-    . "$CALLIS_CONFIG_FILE"
+    # Parse key=value pairs without sourcing the file (prevents code injection)
+    while IFS= read -r line; do
+        case "$line" in
+            CALLIS_HOST=*) CALLIS_HOST="${line#CALLIS_HOST=}" ;;
+            CALLIS_PORT=*) CALLIS_PORT="${line#CALLIS_PORT=}" ;;
+            CALLIS_USER=*) CALLIS_USER="${line#CALLIS_USER=}" ;;
+            CALLIS_KEY=*)  CALLIS_KEY="${line#CALLIS_KEY=}"  ;;
+        esac
+    done < "$CALLIS_CONFIG_FILE"
 }
 
 _callis_list() {
