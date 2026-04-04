@@ -158,7 +158,7 @@ callis setup
 callis list
 
 # Connect by tag
-callis macmini
+callis mac-mini
 
 # Pass extra SSH args
 callis web-prod -L 8080:localhost:8080

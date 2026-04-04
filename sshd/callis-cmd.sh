@@ -36,10 +36,13 @@ case "$CMD" in
     elif [ "$HTTP_CODE" = "000" ]; then
       echo "ERR service unavailable" >&2
       exit 1
-    elif [ -n "$RESULT" ]; then
+    elif [ "$HTTP_CODE" = "200" ] && [ -n "$RESULT" ]; then
       echo "$RESULT"
-    else
+    elif [ "$HTTP_CODE" = "200" ]; then
       echo "ERR host not found or not authorized" >&2
+      exit 1
+    else
+      echo "ERR internal API error (${HTTP_CODE})" >&2
       exit 1
     fi
     ;;
@@ -52,11 +55,16 @@ case "$CMD" in
     elif [ "$HTTP_CODE" = "000" ]; then
       echo "ERR service unavailable" >&2
       exit 1
-    elif [ -n "$RESULT" ]; then
-      printf '%s\n' "$RESULT"
+    elif [ "$HTTP_CODE" = "200" ]; then
+      if [ -n "$RESULT" ]; then
+        printf '%s\n' "$RESULT"
+      else
+        echo "No hosts assigned to user" >&2
+        exit 2
+      fi
     else
-      echo "No hosts assigned to user" >&2
-      exit 2
+      echo "ERR internal API error (${HTTP_CODE})" >&2
+      exit 1
     fi
     ;;
   *)
