@@ -184,6 +184,9 @@ async def totp_verify(
     if user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
 
+    if not user.totp_secret:
+        return RedirectResponse(url="/totp/setup", status_code=303)
+
     secret = decrypt_totp_secret(user.totp_secret)
     if not verify_totp(secret, totp_code):
         # Re-render setup with error

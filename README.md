@@ -70,9 +70,10 @@ docker compose up -d
 **Next steps:**
 
 6. Go to **Users** and create accounts for your team
-7. Each user should log in, set up TOTP, then go to their **profile** to upload SSH public keys
+7. Each user should log in, set up TOTP, then go to **My Keys** to upload SSH public keys
 8. Go to **Hosts** and add your internal servers as jump targets
-9. Users can now SSH through Callis to reach internal hosts
+9. **Assign users to hosts** — use the assignment dropdown on each host row to grant access (users can only jump to hosts they're assigned to)
+10. Users can now SSH through Callis to reach their assigned hosts
 
 ---
 

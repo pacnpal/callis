@@ -33,9 +33,17 @@ async def host_list(
     settings = get_settings()
     ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
 
+    # Load all active users for assignment dropdowns (admin only)
+    all_users = []
+    if user.role == UserRole.admin:
+        users_result = await db.execute(
+            select(User).where(User.is_active == True).order_by(User.username)
+        )
+        all_users = users_result.scalars().all()
+
     return templates.TemplateResponse(
         "hosts.html",
-        {"request": request, "hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host},
+        {"request": request, "hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
     )
 
 
@@ -179,6 +187,20 @@ async def assign_host(
             detail={"host_label": host.label, "username": target_user.username},
         )
 
+    if request.headers.get("HX-Request"):
+        await db.flush()
+        result = await db.execute(
+            select(Host).options(selectinload(Host.assigned_users)).where(Host.id == host_id)
+        )
+        host = result.scalar_one()
+        settings = get_settings()
+        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+        users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
+        all_users = users_result.scalars().all()
+        return templates.TemplateResponse(
+            "partials/host_row.html",
+            {"request": request, "host": host, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
+        )
     return RedirectResponse(url="/hosts", status_code=303)
 
 
@@ -214,4 +236,18 @@ async def unassign_host(
             detail={"host_label": host.label, "username": target_user.username},
         )
 
+    if request.headers.get("HX-Request"):
+        await db.flush()
+        result = await db.execute(
+            select(Host).options(selectinload(Host.assigned_users)).where(Host.id == host_id)
+        )
+        host = result.scalar_one()
+        settings = get_settings()
+        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+        users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
+        all_users = users_result.scalars().all()
+        return templates.TemplateResponse(
+            "partials/host_row.html",
+            {"request": request, "host": host, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
+        )
     return RedirectResponse(url="/hosts", status_code=303)

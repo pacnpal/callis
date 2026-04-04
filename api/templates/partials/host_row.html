@@ -11,10 +11,27 @@
   </td>
   <td>
     {% for u in host.assigned_users %}
-      <span class="badge">{{ u.username }}</span>
+      <span class="badge">{{ u.username }}
+        {% if user.role.value == "admin" %}
+        <a href="#" hx-post="/hosts/{{ host.id }}/unassign/{{ u.id }}" hx-target="#host-row-{{ host.id }}" hx-swap="outerHTML" hx-confirm="Unassign {{ u.username }}?">&times;</a>
+        {% endif %}
+      </span>
     {% else %}
       <span class="text-muted text-small">None</span>
     {% endfor %}
+    {% if user.role.value == "admin" and host.is_active and all_users is defined %}
+    <form method="post" class="assign-form"
+          hx-swap="outerHTML" hx-target="#host-row-{{ host.id }}">
+      <select name="target_user_id" class="assign-select">
+        <option value="">+ Assign</option>
+        {% for u in all_users %}
+          {% if u not in host.assigned_users %}
+          <option value="{{ u.id }}">{{ u.username }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
   </td>
   <td>
     <details>

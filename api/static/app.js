@@ -11,3 +11,18 @@ document.addEventListener("click", function (e) {
     if (d) d.close();
   }
 });
+
+// Host user assignment: auto-submit on select change
+document.addEventListener("change", function (e) {
+  var sel = e.target.closest(".assign-select");
+  if (sel && sel.value) {
+    var form = sel.closest("form");
+    var hostRow = sel.closest("tr");
+    var hostId = hostRow ? hostRow.id.replace("host-row-", "") : "";
+    if (hostId) {
+      form.setAttribute("hx-post", "/hosts/" + hostId + "/assign/" + sel.value);
+      htmx.process(form);
+      htmx.trigger(form, "submit");
+    }
+  }
+});
