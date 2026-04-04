@@ -21,6 +21,7 @@
         {% if user.role.value == "admin" %}
           <li><a href="/users">Users</a></li>
         {% endif %}
+        <li><a href="/users/{{ user.id }}">My Keys</a></li>
         <li><a href="/hosts">Hosts</a></li>
         <li><a href="/audit">Audit Log</a></li>
         <li>

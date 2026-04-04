@@ -111,6 +111,10 @@ async def create_user(
     if username in _RESERVED_USERNAMES:
         raise HTTPException(status_code=400, detail=f"Username '{username}' is reserved")
 
+    # Server-side password validation
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
     # Validate role
     try:
         user_role = UserRole(role)
@@ -262,6 +266,14 @@ async def upload_key(
     # Admin can upload for any user; others only for themselves
     if user.role != UserRole.admin and user.id != user_id:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    # Verify target user exists and is active
+    target_result = await db.execute(select(User).where(User.id == user_id))
+    target = target_result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target.is_active:
+        raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
 
     settings = get_settings()
 
