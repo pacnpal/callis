@@ -9,7 +9,7 @@ from models import Host, SSHKey, User, user_host_assignment
 
 logger = logging.getLogger("callis")
 
-internal_app = FastAPI(docs_url=None, redoc_url=None)
+internal_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 router = APIRouter()
 
 
