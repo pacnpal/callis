@@ -6,7 +6,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI for managin
 
 **Languages & frameworks:** Python 3.12+, FastAPI, Jinja2, htmx (CDN), Pico CSS (CDN), SQLAlchemy (SQLite default, PostgreSQL optional).
 **Dependency management:** `uv` (not pip). Always commit both `pyproject.toml` and `uv.lock`.
-**No frontend build step.** No Node.js, no npm, no JavaScript files. All interactivity via htmx attributes in Jinja2 templates.
+**No frontend build step.** No Node.js, no npm, and no project JavaScript files. Implement interactivity in Jinja2 templates using htmx attributes and native HTML behavior.
 
 ## 2. Build & Validation Commands
 
@@ -85,10 +85,10 @@ callis/
 
 ### Key conventions
 
-- **Route protection:** Always use `Depends(require_totp_complete)` or `Depends(require_role("admin"))`. Never check roles inline or access `request.state.user` directly.
+- **Route protection:** Always use approved dependencies such as `Depends(require_totp_complete)`, `Depends(require_role("operator"))`, or `Depends(require_role("admin"))`, as appropriate for the route. Never check roles inline or access `request.state.user` directly.
 - **Database access:** Use `Depends(get_db)` for sessions.
 - **Audit logging:** Every admin action and security event must call `write_audit_log()` from `core.py`.
-- **Templates:** 2-space indent, semantic HTML. No inline styles (use Pico classes or `static/style.css`). No inline JS — CSP blocks `unsafe-inline`. Dialog toggling uses `static/app.js` with `data-dialog-open`/`data-dialog-close` attributes.
+- **Templates:** 2-space indent, semantic HTML. No inline styles (use Pico classes or `static/style.css`). No inline JS — CSP blocks `unsafe-inline`. Use htmx attributes and native HTML behavior for interactivity.
 - **Adding a page:** One route function in `routers/`, one template in `templates/`, one nav link in `base.html`.
 - **Code style:** PEP 8, type hints everywhere.
 
