@@ -242,7 +242,7 @@ Database tables are created automatically on startup. Back up your database befo
 
 ## Security Notes
 
-- **Private keys are never stored.** If you generate a keypair through the UI, the private key is shown once and discarded.
+- **Private keys are never stored.** Callis accepts uploaded public keys only and does not collect, generate, or retain private keys.
 - **Public key text is write-only.** After upload, only the fingerprint, label, type, and dates are shown.
 - **Port 8081 is internal only.** It serves SSH authorized keys to the sshd container via the Docker network and is never exposed to the host.
 - **TOTP is mandatory.** Every user must enroll in 2FA before accessing any page.

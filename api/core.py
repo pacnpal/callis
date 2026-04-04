@@ -108,12 +108,13 @@ JWT_ALGORITHM = "HS256"
 
 def create_jwt(user_id: str) -> str:
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    issued_at = datetime.now(timezone.utc)
+    expires_at = issued_at + timedelta(seconds=settings.SESSION_MAX_LIFETIME)
     payload = {
         "sub": user_id,
-        "iat": now,
-        "exp": now + timedelta(seconds=settings.SESSION_MAX_LIFETIME),
-        "last_activity": now.isoformat(),
+        "iat": int(issued_at.timestamp()),
+        "exp": int(expires_at.timestamp()),
+        "last_activity": issued_at.isoformat(),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
@@ -222,7 +223,7 @@ def parse_ssh_public_key(key_text: str) -> dict:
     key_data_b64 = parts[1]
 
     try:
-        key_data = base64.b64decode(key_data_b64)
+        key_data = base64.b64decode(key_data_b64, validate=True)
     except Exception:
         raise ValueError("Invalid base64 in SSH public key")
 

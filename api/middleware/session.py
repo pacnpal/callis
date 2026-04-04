@@ -8,8 +8,16 @@ from models import User
 
 
 class SessionMiddleware(BaseHTTPMiddleware):
+    # Paths that don't need session loading
+    _SKIP_PATHS = ("/static/", "/health")
+
     async def dispatch(self, request: Request, call_next) -> Response:
         request.state.user = None
+
+        # Skip session loading for static assets and health checks
+        path = request.url.path
+        if any(path.startswith(p) for p in self._SKIP_PATHS):
+            return await call_next(request)
 
         token = request.cookies.get("callis_session")
         if token:

@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 import qrcode
-from fastapi import APIRouter, Depends, Form, Request, Response
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from slowapi import Limiter
