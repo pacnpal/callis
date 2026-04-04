@@ -37,7 +37,7 @@ cd api
 uv run pytest                # Run test suite from api/ directory
 ```
 
-Tests live in `api/tests/`. Every route needs: unauthenticated access test (redirect to login), insufficient role test (403), and happy-path test.
+Once the source tree is added, tests should live in `api/tests/` (that directory does not exist yet in the current documentation-only checkout). Every route needs: unauthenticated access test (redirect to login), insufficient role test (403), and happy-path test.
 
 ### Dependency management
 
