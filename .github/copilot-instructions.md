@@ -16,7 +16,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI for managin
 
 ```bash
 cp .env.example .env        # Set SECRET_KEY and ADMIN_PASSWORD
-docker compose up -d         # Starts api (8080), sshd (2222), optional sidecars
+docker compose up -d         # Starts api (8080), sshd (2222), optional sidecars (when enabled, e.g. Caddy via profile)
 docker compose down          # Teardown
 ```
 
