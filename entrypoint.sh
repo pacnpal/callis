@@ -7,7 +7,9 @@ export CALLIS_SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/callis/auth.log}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 
 # Harden /data permissions (mounted volume may have loose defaults)
-chmod 700 /data 2>/dev/null || true
+if ! chmod 700 /data 2>/dev/null; then
+    echo "WARNING: Could not set permissions on /data. Continuing with existing permissions." >&2
+fi
 
 # Resolve SECRET_KEY: env var → persisted file → generate and persist for first start
 SECRET_KEY_FILE="/data/.secret_key"
@@ -53,7 +55,9 @@ else
 fi
 
 # Enforce permissions on secret key file every boot
-chmod 600 "$SECRET_KEY_FILE" 2>/dev/null || true
+if ! chmod 600 "$SECRET_KEY_FILE" 2>/dev/null; then
+    echo "WARNING: Could not set permissions on $SECRET_KEY_FILE. Continuing with existing permissions." >&2
+fi
 
 # Derive internal API shared secret from SECRET_KEY via HMAC-SHA256
 if [ -n "${SECRET_KEY:-}" ] && [ -z "${CALLIS_INTERNAL_SECRET:-}" ]; then

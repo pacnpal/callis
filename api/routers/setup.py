@@ -24,7 +24,6 @@ from core import (
     verify_totp,
     write_audit_log,
 )
-from middleware.setup_guard import SetupGuardMiddleware
 from models import AuditAction, User, UserRole
 from dependencies import get_current_user
 
@@ -45,11 +44,13 @@ async def _is_setup_needed() -> bool:
 
 
 async def _is_fully_setup() -> bool:
-    """Return True if at least one user has completed TOTP enrollment."""
+    """Return True if at least one admin user has completed TOTP enrollment."""
     factory = get_session_factory()
     async with factory() as db:
         result = await db.execute(
-            select(func.count()).select_from(User).where(User.totp_enrolled == True)  # noqa: E712
+            select(func.count())
+            .select_from(User)
+            .where(User.role == UserRole.admin, User.totp_enrolled.is_(True))
         )
         return result.scalar() > 0
 
@@ -236,8 +237,5 @@ async def setup_totp_verify(
             detail={"source": "setup_wizard"},
         )
         await db.commit()
-
-    # Mark setup as complete so middleware stops redirecting
-    SetupGuardMiddleware._setup_complete = True
 
     return RedirectResponse(url="/dashboard", status_code=303)

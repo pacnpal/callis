@@ -64,6 +64,8 @@ volumes:
 
 No `.env` file needed — the setup wizard handles first-run configuration. `SECRET_KEY` is auto-generated and persisted to the data volume.
 
+> **Requires Docker Compose v2.24.0+** for the optional `.env` file syntax used in `docker-compose.yml`. Run `docker compose version` to check.
+
 - **Web UI:** `http://<your-server-ip>:8080`
 - **SSH jump port:** `2222`
 
@@ -73,7 +75,7 @@ No `.env` file needed — the setup wizard handles first-run configuration. `SEC
 
 > **Security notice:** The `/setup` page is publicly accessible until an admin account is created.
 > Complete setup immediately after starting the container for the first time.
-> The container logs will show a `FIRST RUN` warning until setup is complete.
+> The container logs will show a `FIRST RUN` warning until an admin account is created.
 
 1. Start Callis: `docker compose up -d`
 2. Open the web UI at `http://<server>:8080` — the **setup wizard** appears automatically
