@@ -15,7 +15,9 @@ fi
 SECRET_KEY_FILE="/data/.secret_key"
 if [ -n "${SECRET_KEY:-}" ]; then
     if [ -f "$SECRET_KEY_FILE" ]; then
-        chmod 600 "$SECRET_KEY_FILE"
+        if ! chmod 600 "$SECRET_KEY_FILE" 2>/dev/null; then
+            echo "WARNING: Could not set permissions on $SECRET_KEY_FILE. Continuing with existing permissions." >&2
+        fi
         PERSISTED_KEY=$(cat "$SECRET_KEY_FILE" 2>/dev/null)
         if [ -z "${PERSISTED_KEY:-}" ]; then
             echo "FATAL: $SECRET_KEY_FILE exists but is empty. Remove it and restart." >&2
@@ -40,7 +42,9 @@ if [ -n "${SECRET_KEY:-}" ]; then
         )
     fi
 elif [ -f "$SECRET_KEY_FILE" ]; then
-    chmod 600 "$SECRET_KEY_FILE"
+    if ! chmod 600 "$SECRET_KEY_FILE" 2>/dev/null; then
+        echo "WARNING: Could not set permissions on $SECRET_KEY_FILE. Continuing with existing permissions." >&2
+    fi
     export SECRET_KEY=$(cat "$SECRET_KEY_FILE")
     if [ -z "${SECRET_KEY:-}" ]; then
         echo "FATAL: $SECRET_KEY_FILE exists but is empty. Remove it and restart." >&2
@@ -84,7 +88,9 @@ export APP_VERSION="${APP_VERSION:-$(cat /app/.version 2>/dev/null || echo 'dev'
 
 # Harden database file permissions if it exists
 if [ -f /data/callis.db ]; then
-    chmod 600 /data/callis.db
+    if ! chmod 600 /data/callis.db 2>/dev/null; then
+        echo "WARNING: Could not set permissions on /data/callis.db. Continuing with existing permissions." >&2
+    fi
 fi
 
 # Ensure log directory exists
