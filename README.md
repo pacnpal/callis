@@ -2,6 +2,11 @@
 
 > *callis (n.) — a narrow, beaten track through rough terrain; in Roman law, a granted right of passage through territory not your own.*
 
+[![GitHub Release](https://img.shields.io/github/v/release/pacnpal/callis?style=flat&logo=github&label=GitHub)](https://github.com/pacnpal/callis/releases)
+[![GHCR](https://img.shields.io/badge/ghcr.io-pacnpal%2Fcallis-blue?style=flat&logo=github)](https://ghcr.io/pacnpal/callis)
+[![Docker Hub](https://img.shields.io/docker/v/pacnpal/callis?style=flat&logo=docker&label=Docker%20Hub)](https://hub.docker.com/r/pacnpal/callis)
+[![License](https://img.shields.io/github/license/pacnpal/callis?style=flat)](LICENSE)
+
 Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provides secure, audited SSH access to internal infrastructure through a single hardened entry point, with full user management, public key management, and connection logging — all configurable through a browser.
 
 ---
