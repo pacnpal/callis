@@ -1,6 +1,6 @@
 [sshd]
 enabled = true
-port = 2222
+port = %(ENV{SSH_PORT})s
 filter = sshd
 logpath = /var/log/callis-sshd/auth.log
 maxretry = 3
