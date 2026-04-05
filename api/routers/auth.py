@@ -97,9 +97,11 @@ async def login_submit(
     # If TOTP enrolled, verify code (always run decrypt+verify for constant-time)
     if user.totp_enrolled:
         secret = decrypt_totp_secret(user.totp_secret)
-        # Normalize empty code to a dummy value so verify_totp always runs
-        totp_valid = verify_totp(secret, totp_code if totp_code else "000000")
+        submitted_totp_code = (totp_code or "").strip()
+        # verify_totp already handles invalid/empty formats in constant-time
+        totp_valid = verify_totp(secret, submitted_totp_code)
         if not totp_valid:
+            totp_failure_reason = "totp_missing" if not submitted_totp_code else "totp_invalid"
             await write_audit_log(
                 db,
                 actor_id=None,
@@ -107,7 +109,7 @@ async def login_submit(
                 target_type="user",
                 target_id=user.id,
                 source_ip=request.client.host if request.client else None,
-                detail={"reason": "invalid_totp", "target_username": user.username},
+                detail={"reason": totp_failure_reason, "target_username": user.username},
             )
             return templates.TemplateResponse(
                 request,

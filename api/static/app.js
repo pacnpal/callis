@@ -1,5 +1,6 @@
 // Theme toggle — cycles through system → light → dark.
 // Stores preference in localStorage; Pico CSS applies the active theme via data-theme.
+// Tracks active mode in-memory so cycling works even when localStorage is unavailable.
 (function () {
   var MODES = ["system", "light", "dark"];
   var ICONS = {
@@ -13,16 +14,21 @@
     dark: "Theme: dark. Click for auto."
   };
 
-  function current() {
-    try {
-      var v = localStorage.getItem("callis-theme");
-      return MODES.indexOf(v) !== -1 ? v : "system";
-    } catch (_) {
-      return "system";
-    }
+  // In-memory mode — seeded from localStorage if available, used for cycling.
+  var activeMode = "system";
+  try {
+    var stored = localStorage.getItem("callis-theme");
+    if (MODES.indexOf(stored) !== -1) activeMode = stored;
+  } catch (_) {}
+
+  // Also derive from data-theme if theme.js already applied one
+  if (activeMode === "system") {
+    var dt = document.documentElement.getAttribute("data-theme");
+    if (dt === "light" || dt === "dark") activeMode = dt;
   }
 
   function apply(mode) {
+    activeMode = mode;
     try { localStorage.setItem("callis-theme", mode); } catch (_) {}
     if (mode === "light" || mode === "dark") {
       document.documentElement.setAttribute("data-theme", mode);
@@ -33,18 +39,17 @@
   }
 
   function updateButtons() {
-    var mode = current();
     var btns = document.querySelectorAll("[data-theme-toggle]");
     for (var i = 0; i < btns.length; i++) {
-      btns[i].innerHTML = ICONS[mode];
-      btns[i].setAttribute("aria-label", LABELS[mode]);
+      btns[i].innerHTML = ICONS[activeMode];
+      btns[i].setAttribute("aria-label", LABELS[activeMode]);
     }
   }
 
   document.addEventListener("click", function (e) {
     var btn = e.target.closest("[data-theme-toggle]");
     if (!btn) return;
-    var next = MODES[(MODES.indexOf(current()) + 1) % MODES.length];
+    var next = MODES[(MODES.indexOf(activeMode) + 1) % MODES.length];
     apply(next);
   });
 

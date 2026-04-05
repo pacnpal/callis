@@ -15,8 +15,9 @@
 
     <label for="totp_code">TOTP Code</label>
     <input type="text" id="totp_code" name="totp_code" autocomplete="one-time-code"
-           placeholder="6-digit code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6">
-    <p class="helper-text">Enter the code from your authenticator app. Leave blank on your first login &mdash; you will set up two-factor authentication next.</p>
+           placeholder="6-digit code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+           aria-describedby="totp_code_help">
+    <p id="totp_code_help" class="helper-text">Enter the code from your authenticator app. Leave blank on your first login &mdash; you will set up two-factor authentication next.</p>
 
     <button type="submit">Sign In</button>
   </form>

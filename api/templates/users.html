@@ -16,8 +16,9 @@
     </header>
     <form method="post" action="/users">
       <label for="username">Username</label>
-      <input type="text" id="username" name="username" required pattern="[a-z][a-z0-9_\-]{0,31}" title="Lowercase letters, numbers, hyphens, underscores. Must start with a letter. Max 32 chars." placeholder="johndoe">
-      <p class="helper-text">This becomes their SSH login name. Lowercase letters, numbers, hyphens, and underscores only.</p>
+      <input type="text" id="username" name="username" required pattern="[a-z][a-z0-9_\-]{0,31}" title="Lowercase letters, numbers, hyphens, underscores. Must start with a letter. Max 32 chars." placeholder="johndoe"
+             aria-describedby="username_help">
+      <p id="username_help" class="helper-text">This becomes their SSH login name. Lowercase letters, numbers, hyphens, and underscores only.</p>
 
       <label for="display_name">Display Name</label>
       <input type="text" id="display_name" name="display_name" placeholder="John Doe">
@@ -26,8 +27,9 @@
       <input type="email" id="email" name="email" placeholder="john@example.com">
 
       <label for="password">Password</label>
-      <input type="password" id="password" name="password" required minlength="8">
-      <p class="helper-text">Minimum 8 characters. The user will set up TOTP on first login.</p>
+      <input type="password" id="password" name="password" required minlength="8"
+             aria-describedby="password_help">
+      <p id="password_help" class="helper-text">Minimum 8 characters. The user will set up TOTP on first login.</p>
 
       <label for="role">Role</label>
       <select id="role" name="role">
