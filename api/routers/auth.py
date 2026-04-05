@@ -98,8 +98,8 @@ async def login_submit(
     if user.totp_enrolled:
         secret = decrypt_totp_secret(user.totp_secret)
         submitted_totp_code = (totp_code or "").strip()
-        # Normalize empty code to a dummy value so verify_totp always runs
-        totp_valid = verify_totp(secret, submitted_totp_code if submitted_totp_code else "000000")
+        # verify_totp already handles invalid/empty formats in constant-time
+        totp_valid = verify_totp(secret, submitted_totp_code)
         if not totp_valid:
             totp_failure_reason = "totp_missing" if not submitted_totp_code else "totp_invalid"
             await write_audit_log(
