@@ -1,6 +1,7 @@
 // Theme initializer — runs synchronously before body renders to prevent FOUC.
 // Reads the user's saved preference from localStorage and applies it immediately.
-// Valid values: "light", "dark", or absent/other (system default — Pico CSS auto-detects).
+// Stored values may be "light", "dark", or "system"; "system" (and absent/other values)
+// removes the explicit theme so Pico CSS follows the OS/browser preference.
 (function () {
   try {
     var t = localStorage.getItem("callis-theme");
