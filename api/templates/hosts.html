@@ -8,7 +8,7 @@
   {% endif %}
 </div>
 
-<p class="text-muted">Hosts are internal servers you connect to through Callis. Each host gets an <strong>alias</strong> — a short name auto-generated from its label — that you use in your SSH config and with <code>ssh callis resolve</code>.</p>
+<p class="text-muted">Hosts are internal servers you connect to through Callis. Each host gets an <strong>alias</strong> — a short name auto-generated from its label — that you use in your SSH config and with <code>ssh callis resolve &lt;alias&gt;</code>.</p>
 
 {% if user.role.value == "admin" %}
 <dialog id="add-host-dialog">
@@ -21,7 +21,7 @@
       <label for="label">Label</label>
       <input type="text" id="label" name="label" required placeholder="e.g. Production Web Server"
              aria-describedby="host_label_help">
-      <p id="host_label_help" class="helper-text">A friendly name for this host. It will be converted into an SSH alias automatically (e.g. "Production Web Server" → <code>production-web-server</code>). This alias is used in your SSH config and with <code>ssh callis resolve</code>.</p>
+      <p id="host_label_help" class="helper-text">A friendly name for this host. It will be converted into an SSH alias automatically (e.g. "Production Web Server" → <code>production-web-server</code>). This alias is used in your SSH config and with <code>ssh callis resolve &lt;alias&gt;</code>.</p>
 
       <label for="hostname">Hostname / IP</label>
       <input type="text" id="hostname" name="hostname" required placeholder="192.168.1.50 or server.internal"
