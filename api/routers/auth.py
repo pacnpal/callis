@@ -53,7 +53,7 @@ async def login_submit(
     db: AsyncSession = Depends(get_db),
 ):
     settings = get_settings()
-    error_msg = "Invalid credentials"
+    error_msg = "Invalid username or password"
     username = username.lower().strip()
 
     result = await db.execute(select(User).where(User.username == username))
@@ -97,9 +97,14 @@ async def login_submit(
     # If TOTP enrolled, verify code (always run decrypt+verify for constant-time)
     if user.totp_enrolled:
         secret = decrypt_totp_secret(user.totp_secret)
+        submitted_totp_code = (totp_code or "").strip()
         # Normalize empty code to a dummy value so verify_totp always runs
-        totp_valid = verify_totp(secret, totp_code if totp_code else "000000")
+        totp_valid = verify_totp(secret, submitted_totp_code if submitted_totp_code else "000000")
         if not totp_valid:
+            if not submitted_totp_code:
+                error_msg = "Two-factor code is required for this account"
+            else:
+                error_msg = "Invalid two-factor code"
             await write_audit_log(
                 db,
                 actor_id=None,
