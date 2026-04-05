@@ -136,7 +136,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "jinja2", specifier = ">=3.1.0,<3.1.7" },
+    { name = "jinja2", specifier = ">=3.1.6" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pyjwt", specifier = ">=2.8.0" },
     { name = "pyotp", specifier = ">=2.9.0" },
