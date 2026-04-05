@@ -49,22 +49,21 @@ def get_app_version() -> str:
 _SECRET_KEY_FILE = "/data/.secret_key"
 
 
-def _fix_key_file_permissions() -> None:
+def _fix_key_file_permissions(path: str = _SECRET_KEY_FILE) -> None:
     """Ensure the secret key file has 0o600 permissions.
 
     Logs a warning and continues if the chmod fails (e.g. running outside
     Docker where /data may be on a filesystem that ignores POSIX modes).
     """
     try:
-        st = os.stat(_SECRET_KEY_FILE)
+        st = os.stat(path)
         if _stat.S_IMODE(st.st_mode) != 0o600:
-            logger.warning("Secret key file %s has loose permissions; fixing.", _SECRET_KEY_FILE)
-            os.chmod(_SECRET_KEY_FILE, 0o600)
+            logger.warning("Secret key file %s has loose permissions; fixing.", path)
+            os.chmod(path, 0o600)
+    except FileNotFoundError:
+        pass  # Expected on first run — file doesn't exist yet
     except (PermissionError, OSError) as exc:
-        logger.warning(
-            "Could not check/fix permissions on %s: %s. Continuing with existing permissions.",
-            _SECRET_KEY_FILE, exc,
-        )
+        logger.warning("Could not check/fix permissions on %s: %s", path, exc)
 
 
 def _resolve_secret_key() -> str:

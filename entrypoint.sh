@@ -18,7 +18,10 @@ if [ -n "${SECRET_KEY:-}" ]; then
         if ! chmod 600 "$SECRET_KEY_FILE" 2>/dev/null; then
             echo "WARNING: Could not set permissions on $SECRET_KEY_FILE. Continuing with existing permissions." >&2
         fi
-        PERSISTED_KEY=$(cat "$SECRET_KEY_FILE" 2>/dev/null)
+        if ! PERSISTED_KEY=$(cat "$SECRET_KEY_FILE" 2>/dev/null); then
+            echo "FATAL: Could not read persisted SECRET_KEY from $SECRET_KEY_FILE." >&2
+            exit 1
+        fi
         if [ -z "${PERSISTED_KEY:-}" ]; then
             echo "FATAL: $SECRET_KEY_FILE exists but is empty. Remove it and restart." >&2
             exit 1
@@ -45,11 +48,16 @@ elif [ -f "$SECRET_KEY_FILE" ]; then
     if ! chmod 600 "$SECRET_KEY_FILE" 2>/dev/null; then
         echo "WARNING: Could not set permissions on $SECRET_KEY_FILE. Continuing with existing permissions." >&2
     fi
-    export SECRET_KEY=$(cat "$SECRET_KEY_FILE")
-    if [ -z "${SECRET_KEY:-}" ]; then
+    if ! PERSISTED_SECRET_KEY=$(cat "$SECRET_KEY_FILE" 2>/dev/null); then
+        echo "FATAL: Could not read persisted SECRET_KEY from $SECRET_KEY_FILE." >&2
+        exit 1
+    fi
+    PERSISTED_SECRET_KEY=$(printf '%s' "$PERSISTED_SECRET_KEY" | tr -d '\r\n')
+    if [ -z "$PERSISTED_SECRET_KEY" ]; then
         echo "FATAL: $SECRET_KEY_FILE exists but is empty. Remove it and restart." >&2
         exit 1
     fi
+    export SECRET_KEY="$PERSISTED_SECRET_KEY"
 else
     export SECRET_KEY=$(openssl rand -hex 32)
     (
