@@ -12,27 +12,20 @@
 
 ### Mode A — LAN Only (no domain, no TLS)
 
-The simplest setup. Access the web UI via IP and port on your local network.
+The simplest setup. No `.env` file required — the setup wizard handles first-run configuration.
 
 ```bash
 git clone https://github.com/pacnpal/callis.git
 cd callis
-cp .env.example .env
-```
-
-Edit `.env`:
-```env
-SECRET_KEY=<generate with: openssl rand -hex 32>
-ADMIN_PASSWORD=<strong password>
-```
-
-Start:
-```bash
 docker compose up -d
 ```
 
-- Web UI: `http://<your-server-ip>:8080`
-- SSH: `<your-server-ip>:2222`
+Open `http://<your-server-ip>:8080` — the setup wizard appears automatically on first load:
+1. Create your admin account (username + password)
+2. Set up TOTP 2FA (scan QR code, verify code)
+3. You're logged in to the dashboard
+
+`SECRET_KEY` is auto-generated and persisted to `/data/.secret_key`. SSH available on `<your-server-ip>:2222` after setup.
 
 ### Mode B — Behind Your Own Reverse Proxy (Caddy, Nginx, Traefik, etc.)
 
@@ -45,11 +38,10 @@ callis.example.com {
 }
 ```
 
-Set in `.env`:
+Create `.env` with proxy settings:
 ```env
-SECRET_KEY=<generate with: openssl rand -hex 32>
-ADMIN_PASSWORD=<strong password>
 BASE_URL=https://callis.example.com
+HTTPS_ENABLED=true
 ```
 
 Start:
@@ -57,28 +49,9 @@ Start:
 docker compose up -d
 ```
 
-The SSH port (2222) must be forwarded separately at the network/firewall level. It does not go through the reverse proxy.
+The setup wizard runs on first load. The SSH port (2222) must be forwarded separately — it does not go through the reverse proxy.
 
-### Mode C — With Included Caddy Sidecar
-
-For users without an existing reverse proxy who want automatic TLS via Let's Encrypt.
-
-Set in `.env`:
-```env
-SECRET_KEY=<generate with: openssl rand -hex 32>
-ADMIN_PASSWORD=<strong password>
-CALLIS_DOMAIN=callis.example.com
-BASE_URL=https://callis.example.com
-```
-
-Start with the caddy profile:
-```bash
-docker compose --profile caddy up -d
-```
-
-Port 80 and 443 must be reachable from the internet for Let's Encrypt to issue a certificate.
-
-### Mode D — OIDC Authentication
+### Mode C — OIDC Authentication
 
 Replace built-in password auth with an external OIDC provider (Authentik, Keycloak, Okta, etc.).
 
@@ -98,10 +71,8 @@ In OIDC mode, Callis delegates authentication entirely to the OIDC provider. TOT
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SECRET_KEY` | **Yes** | — | 32+ byte hex string. Generate: `openssl rand -hex 32` |
-| `ADMIN_PASSWORD` | **Yes** | — | Initial admin account password |
-| `ADMIN_USERNAME` | No | `admin` | Initial admin account username |
-| `DATABASE_URL` | No | `sqlite:///./callis.db` | SQLAlchemy DB URL. Use `postgresql://...` for Postgres |
+| `SECRET_KEY` | No | Auto-generated | 32+ byte hex string for JWT signing and TOTP encryption. Auto-generated and persisted to `/data/.secret_key` if not set. |
+| `DATABASE_URL` | No | `sqlite+aiosqlite:////data/callis.db` | SQLAlchemy DB URL. Use `postgresql+asyncpg://...` for PostgreSQL |
 | `SSH_PORT` | No | `2222` | External SSH port |
 | `WEB_PORT` | No | `8080` | External web UI port |
 | `BASE_URL` | No | `http://localhost:8080` | Public base URL — used in SSH config snippets shown to users |
@@ -112,7 +83,9 @@ In OIDC mode, Callis delegates authentication entirely to the OIDC provider. TOT
 | `OIDC_ISSUER` | If OIDC | — | OIDC issuer URL |
 | `OIDC_CLIENT_ID` | If OIDC | — | OIDC client ID |
 | `OIDC_CLIENT_SECRET` | If OIDC | — | OIDC client secret |
-| `CALLIS_DOMAIN` | If Caddy | — | Domain for Caddy TLS (Mode C only) |
+| `HTTPS_ENABLED` | No | `false` | Enable HSTS and Secure cookie flag |
+| `DEV_MODE` | No | `false` | Enable verbose SQL logging |
+| `LOG_LEVEL` | No | `info` | Logging level (debug, info, warning, error) |
 | `TZ` | No | `UTC` | Timezone for log timestamps |
 
 ---
@@ -137,7 +110,6 @@ The internal API (8081) is used by the sshd process to fetch authorized keys, re
 | `callis_hostkeys` | SSH host keys — persisted across container restarts |
 | `callis_sshd_logs` | sshd log output — shared with fail2ban sidecar |
 | `callis_audit_logs` | Audit log files |
-| `caddy_data` | Caddy TLS certificates (Mode C only) |
 
 ---
 

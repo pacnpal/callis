@@ -22,6 +22,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 - Fail2ban sidecar for SSH brute force protection
 - Rate limiting on web UI login
 - Works on a LAN or behind any reverse proxy
+- First-run setup wizard — no `.env` configuration required
 - Single `docker compose up` deployment
 
 ---
@@ -37,7 +38,8 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 ## Quick Start
 
 ```bash
-cp .env.example .env
+git clone https://github.com/pacnpal/callis.git
+cd callis
 docker compose up -d
 ```
 
@@ -60,7 +62,7 @@ volumes:
   callis_hostkeys:
 ```
 
-Copy `.env.example` to `.env` before starting — all values are optional, the setup wizard handles first-run configuration.
+No `.env` file needed — the setup wizard handles first-run configuration. `SECRET_KEY` is auto-generated and persisted to the data volume.
 
 - **Web UI:** `http://<your-server-ip>:8080`
 - **SSH jump port:** `2222`
@@ -92,11 +94,10 @@ Copy `.env.example` to `.env` before starting — all values are optional, the s
 The default. Good for home labs and internal networks.
 
 ```bash
-cp .env.example .env
 docker compose up -d
 ```
 
-Access via `http://<server-ip>:8080` (web) and `<server-ip>:2222` (SSH).
+Open `http://<server-ip>:8080` — the setup wizard guides you through admin account creation and TOTP enrollment. SSH available on `<server-ip>:2222` after setup.
 
 ### Mode B — Behind a Reverse Proxy (Caddy, Nginx, Traefik, etc.)
 
@@ -307,12 +308,14 @@ Database tables are created automatically on startup. Back up your database befo
 
 ## Security Notes
 
+- **SECRET_KEY is auto-generated** using `openssl rand -hex 32` on first start and persisted to `/data/.secret_key` with `chmod 600`. The `/data` volume is hardened to `chmod 700` on every boot.
 - **Private keys are never stored.** Callis accepts uploaded public keys only and does not collect, generate, or retain private keys.
 - **Public key text is write-only.** After upload, only the fingerprint, label, type, and dates are shown.
-- **Port 8081 is internal only.** It serves SSH authorized keys to the sshd container via the Docker network and is never exposed to the host.
-- **TOTP is mandatory.** Every user must enroll in 2FA before accessing any page.
+- **Port 8081 is internal only.** It serves SSH authorized keys within the container and is never exposed. All requests require `X-Internal-Secret` (HMAC-SHA256).
+- **TOTP is mandatory.** Every user must enroll in 2FA before accessing any page — including during the setup wizard.
 - **Audit log is append-only.** No API or UI can delete or modify audit entries.
-- **Authentication checks are hardened.** Login applies secure password verification and enforces TOTP-based 2FA.
+- **Authentication checks are hardened.** Constant-time password verification, constant-time TOTP comparison, no user enumeration via timing or error messages.
+- **File permissions enforced on every boot.** `/data` (700), `.secret_key` (600), `callis.db` (600), SSH host key (600).
 - **sshd is hardened.** Ed25519 and RSA (4096+ bit) keys accepted, no passwords, no root login, no interactive shell (ForceCommand allows only `resolve` and `list`), modern cipher suite.
 
 ---
