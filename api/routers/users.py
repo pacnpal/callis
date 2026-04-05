@@ -41,13 +41,15 @@ async def user_list(
 
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
+            request,
             "users.html",
-            {"request": request, "users": users, "key_counts": key_counts, "user": user},
+            context={"users": users, "key_counts": key_counts, "user": user},
         )
 
     return templates.TemplateResponse(
+        request,
         "users.html",
-        {"request": request, "users": users, "key_counts": key_counts, "user": user},
+        context={"users": users, "key_counts": key_counts, "user": user},
     )
 
 
@@ -74,9 +76,9 @@ async def user_detail(
     ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
 
     return templates.TemplateResponse(
+        request,
         "user_detail.html",
-        {
-            "request": request,
+        context={
             "target_user": target_user,
             "keys": active_keys,
             "assigned_hosts": assigned_hosts,
@@ -112,8 +114,9 @@ async def create_user(
             for uid, count in cr.all():
                 kc[uid] = count
         return templates.TemplateResponse(
+            request,
             "users.html",
-            {"request": request, "error": detail, "users": all_users, "key_counts": kc, "user": user},
+            context={"error": detail, "users": all_users, "key_counts": kc, "user": user},
             status_code=400,
         )
 
@@ -193,8 +196,9 @@ async def deactivate_user(
         )
         key_count = key_count_result.scalar()
         return templates.TemplateResponse(
+            request,
             "partials/user_row.html",
-            {"request": request, "row_user": target, "key_count": key_count, "user": user},
+            context={"row_user": target, "key_count": key_count, "user": user},
         )
     return RedirectResponse(url="/users", status_code=303)
 
@@ -228,8 +232,9 @@ async def activate_user(
         )
         key_count = key_count_result.scalar()
         return templates.TemplateResponse(
+            request,
             "partials/user_row.html",
-            {"request": request, "row_user": target, "key_count": key_count, "user": user},
+            context={"row_user": target, "key_count": key_count, "user": user},
         )
     return RedirectResponse(url="/users", status_code=303)
 
@@ -342,8 +347,9 @@ async def upload_key(
         )
         keys = result.scalars().all()
         return templates.TemplateResponse(
+            request,
             "partials/key_list.html",
-            {"request": request, "keys": keys, "target_user_id": user_id, "user": user},
+            context={"keys": keys, "target_user_id": user_id, "user": user},
         )
     return RedirectResponse(url=f"/users/{user_id}", status_code=303)
 
@@ -380,7 +386,8 @@ async def revoke_key(
         )
         keys = keys_result.scalars().all()
         return templates.TemplateResponse(
+            request,
             "partials/key_list.html",
-            {"request": request, "keys": keys, "target_user_id": user_id, "user": user},
+            context={"keys": keys, "target_user_id": user_id, "user": user},
         )
     return RedirectResponse(url=f"/users/{user_id}", status_code=303)

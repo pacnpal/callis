@@ -78,7 +78,7 @@ async def _is_fully_setup() -> bool:
 async def setup_page(request: Request):
     if not await _is_setup_needed():
         raise HTTPException(status_code=404)
-    return templates.TemplateResponse("setup.html", {"request": request})
+    return templates.TemplateResponse(request, "setup.html")
 
 
 @router.post("/setup")
@@ -108,8 +108,9 @@ async def setup_submit(
 
     if errors:
         return templates.TemplateResponse(
+            request,
             "setup.html",
-            {"request": request, "error": " ".join(errors), "username": username, "display_name": display_name},
+            context={"error": " ".join(errors), "username": username, "display_name": display_name},
             status_code=400,
         )
 
@@ -125,8 +126,9 @@ async def setup_submit(
             existing = await db.execute(select(User).where(User.username == username))
             if existing.scalar_one_or_none():
                 return templates.TemplateResponse(
+                    request,
                     "setup.html",
-                    {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
+                    context={"error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
                     status_code=400,
                 )
 
@@ -169,8 +171,9 @@ async def setup_submit(
             except IntegrityError:
                 await db.rollback()
                 return templates.TemplateResponse(
+                    request,
                     "setup.html",
-                    {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
+                    context={"error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
                     status_code=400,
                 )
 
@@ -209,8 +212,9 @@ async def setup_totp_page(request: Request, user: User = Depends(get_current_use
     qr_b64 = base64.b64encode(buf.getvalue()).decode()
 
     return templates.TemplateResponse(
+        request,
         "setup_totp.html",
-        {"request": request, "user": user, "qr_code": qr_b64, "totp_secret": secret},
+        context={"user": user, "qr_code": qr_b64, "totp_secret": secret},
     )
 
 
@@ -240,8 +244,9 @@ async def setup_totp_verify(
         img.save(buf, format="PNG")
         qr_b64 = base64.b64encode(buf.getvalue()).decode()
         return templates.TemplateResponse(
+            request,
             "setup_totp.html",
-            {"request": request, "user": user, "qr_code": qr_b64, "totp_secret": secret, "error": "Invalid code. Please try again."},
+            context={"user": user, "qr_code": qr_b64, "totp_secret": secret, "error": "Invalid code. Please try again."},
             status_code=400,
         )
 

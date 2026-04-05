@@ -42,8 +42,9 @@ async def host_list(
         all_users = users_result.scalars().all()
 
     return templates.TemplateResponse(
+        request,
         "hosts.html",
-        {"request": request, "hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
+        context={"hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
     )
 
 
@@ -69,8 +70,9 @@ async def create_host(
             ur = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
             au = ur.scalars().all()
         return templates.TemplateResponse(
+            request,
             "hosts.html",
-            {"request": request, "error": detail, "hosts": all_hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": au},
+            context={"error": detail, "hosts": all_hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": au},
             status_code=400,
         )
 
@@ -153,8 +155,9 @@ async def deactivate_host(
         settings = get_settings()
         ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
         return templates.TemplateResponse(
+            request,
             "partials/host_row.html",
-            {"request": request, "host": host, "user": user, "settings": settings, "ssh_host": ssh_host},
+            context={"host": host, "user": user, "settings": settings, "ssh_host": ssh_host},
         )
     return RedirectResponse(url="/hosts", status_code=303)
 
@@ -233,8 +236,9 @@ async def assign_host(
         users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
         all_users = users_result.scalars().all()
         return templates.TemplateResponse(
+            request,
             "partials/host_row.html",
-            {"request": request, "host": host, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
+            context={"host": host, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
         )
     return RedirectResponse(url="/hosts", status_code=303)
 
@@ -282,7 +286,8 @@ async def unassign_host(
         users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
         all_users = users_result.scalars().all()
         return templates.TemplateResponse(
+            request,
             "partials/host_row.html",
-            {"request": request, "host": host, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
+            context={"host": host, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
         )
     return RedirectResponse(url="/hosts", status_code=303)

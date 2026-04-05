@@ -40,7 +40,7 @@ async def login_page(request: Request):
     user = getattr(request.state, "user", None)
     if user and user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html")
 
 
 @router.post("/login")
@@ -71,8 +71,9 @@ async def login_submit(
             detail={"username": username, "reason": "user_not_found"},
         )
         return templates.TemplateResponse(
+            request,
             "login.html",
-            {"request": request, "error": error_msg},
+            context={"error": error_msg},
             status_code=401,
         )
 
@@ -87,8 +88,9 @@ async def login_submit(
             detail={"reason": "wrong_password", "target_username": user.username},
         )
         return templates.TemplateResponse(
+            request,
             "login.html",
-            {"request": request, "error": error_msg},
+            context={"error": error_msg},
             status_code=401,
         )
 
@@ -108,8 +110,9 @@ async def login_submit(
                 detail={"reason": "invalid_totp", "target_username": user.username},
             )
             return templates.TemplateResponse(
+                request,
                 "login.html",
-                {"request": request, "error": error_msg},
+                context={"error": error_msg},
                 status_code=401,
             )
 
@@ -167,9 +170,9 @@ async def totp_setup_page(
     qr_b64 = base64.b64encode(buf.getvalue()).decode()
 
     return templates.TemplateResponse(
+        request,
         "totp_setup.html",
-        {
-            "request": request,
+        context={
             "user": user,
             "qr_code": qr_b64,
             "totp_secret": secret,
@@ -204,9 +207,9 @@ async def totp_verify(
         qr_b64 = base64.b64encode(buf.getvalue()).decode()
 
         return templates.TemplateResponse(
+            request,
             "totp_setup.html",
-            {
-                "request": request,
+            context={
                 "user": user,
                 "qr_code": qr_b64,
                 "totp_secret": secret,

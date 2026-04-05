@@ -108,9 +108,9 @@ async def dashboard(
     ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
 
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
-        {
-            "request": request,
+        context={
             "user": user,
             "active_users": active_users,
             "active_hosts": active_hosts,
@@ -140,8 +140,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     accept = request.headers.get("accept", "")
     if "text/html" in accept:
         return templates.TemplateResponse(
+            request,
             "500.html",
-            {"request": request, "error": exc.detail},
+            context={"error": exc.detail},
             status_code=exc.status_code,
         )
     # API/JSON clients get the default JSON response
@@ -152,13 +153,13 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.exception_handler(500)
 async def internal_error_handler(request: Request, exc: Exception):
     logger.exception("Unhandled exception")
-    return templates.TemplateResponse("500.html", {"request": request}, status_code=500)
+    return templates.TemplateResponse(request, "500.html", status_code=500)
 
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled exception")
-    return templates.TemplateResponse("500.html", {"request": request}, status_code=500)
+    return templates.TemplateResponse(request, "500.html", status_code=500)
 
 
 # ---------------------------------------------------------------------------
