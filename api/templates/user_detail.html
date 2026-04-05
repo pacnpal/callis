@@ -24,7 +24,7 @@
           <span class="badge badge-inactive">Inactive</span>
         {% endif %}
       </dd>
-      <dt>TOTP</dt>
+      <dt>Authenticator App</dt>
       <dd>{{ "Enrolled" if target_user.totp_enrolled else "Not enrolled" }}</dd>
       <dt>Created</dt>
       <dd>{{ target_user.created_at.strftime('%Y-%m-%d %H:%M') }}</dd>

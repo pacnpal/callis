@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Setup TOTP - Callis{% endblock %}
+{% block title %}Authenticator Setup - Callis{% endblock %}
 {% block content %}
 <article class="setup-card">
   <header>
@@ -8,7 +8,7 @@
   </header>
 
   <div class="totp-qr">
-    <img src="data:image/png;base64,{{ qr_code }}" alt="TOTP QR Code">
+    <img src="data:image/png;base64,{{ qr_code }}" alt="Authenticator QR Code">
   </div>
 
   <details>

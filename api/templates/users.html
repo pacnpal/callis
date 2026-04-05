@@ -6,7 +6,7 @@
   <button data-dialog-open="add-user-dialog">Add User</button>
 </div>
 
-<p class="text-muted">Manage who can access the bastion. Users need to enroll in TOTP before they can access the web UI. SSH access requires at least one SSH key and the appropriate host assignment.</p>
+<p class="text-muted">Manage who can access the bastion. Users need to set up an authenticator app before they can access the web UI. SSH access requires at least one SSH key and the appropriate host assignment.</p>
 
 <dialog id="add-user-dialog">
   <article>
@@ -29,7 +29,7 @@
       <label for="password">Password</label>
       <input type="password" id="password" name="password" required minlength="8"
              aria-describedby="password_help">
-      <p id="password_help" class="helper-text">Minimum 8 characters. The user will set up TOTP on first login.</p>
+      <p id="password_help" class="helper-text">Minimum 8 characters. The user will set up their authenticator app on first login.</p>
 
       <label for="role">Role</label>
       <select id="role" name="role">
