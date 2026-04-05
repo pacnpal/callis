@@ -49,19 +49,66 @@ def get_app_version() -> str:
 _SECRET_KEY_FILE = "/data/.secret_key"
 
 
-def _resolve_secret_key() -> str:
-    """Resolve SECRET_KEY: env var → persisted file → auto-generate."""
-    # 1. Env var takes precedence
-    key = os.environ.get("SECRET_KEY", "").strip()
-    if key:
-        return key
+def _fix_key_file_permissions() -> None:
+    """Ensure the secret key file has 0o600 permissions.
 
-    # 2. Check persisted file (from previous run or setup wizard)
+    Logs a warning and continues if the chmod fails (e.g. running outside
+    Docker where /data may be on a filesystem that ignores POSIX modes).
+    """
     try:
         st = os.stat(_SECRET_KEY_FILE)
         if _stat.S_IMODE(st.st_mode) != 0o600:
             logger.warning("Secret key file %s has loose permissions; fixing.", _SECRET_KEY_FILE)
             os.chmod(_SECRET_KEY_FILE, 0o600)
+    except (PermissionError, OSError) as exc:
+        logger.warning(
+            "Could not check/fix permissions on %s: %s. Continuing with existing permissions.",
+            _SECRET_KEY_FILE, exc,
+        )
+
+
+def _resolve_secret_key() -> str:
+    """Resolve SECRET_KEY: env var → persisted file → auto-generate."""
+    # 1. Env var takes precedence — but if a persisted key already exists we
+    #    must verify they match to prevent silent key rotation.  This mirrors
+    #    the same safety check performed in entrypoint.sh.
+    env_key = os.environ.get("SECRET_KEY", "").strip()
+    if env_key:
+        try:
+            with open(_SECRET_KEY_FILE) as f:
+                persisted = f.read().strip()
+            if persisted and persisted != env_key:
+                rotate = os.environ.get("CALLIS_ROTATE_SECRET_KEY", "").strip().lower()
+                if rotate != "true":
+                    raise ValueError(
+                        f"SECRET_KEY env var does not match the persisted key in "
+                        f"{_SECRET_KEY_FILE}. Refusing to start. Set "
+                        f"CALLIS_ROTATE_SECRET_KEY=true to intentionally rotate "
+                        f"the key (this will invalidate all active sessions and "
+                        f"stored TOTP secrets)."
+                    )
+                logger.warning(
+                    "CALLIS_ROTATE_SECRET_KEY is set — overwriting persisted key "
+                    "in %s with the env var value.", _SECRET_KEY_FILE,
+                )
+                try:
+                    fd = os.open(_SECRET_KEY_FILE, os.O_WRONLY | os.O_TRUNC, 0o600)
+                    with os.fdopen(fd, "w") as fw:
+                        fw.write(env_key)
+                except (PermissionError, OSError) as exc:
+                    logger.warning(
+                        "Could not persist rotated key to %s: %s. "
+                        "Using env var value in-memory only.",
+                        _SECRET_KEY_FILE, exc,
+                    )
+        except FileNotFoundError:
+            pass  # No persisted file yet — env var wins without conflict
+        _fix_key_file_permissions()
+        return env_key
+
+    # 2. Check persisted file (from previous run or setup wizard)
+    try:
+        _fix_key_file_permissions()
         with open(_SECRET_KEY_FILE) as f:
             key = f.read().strip()
             if key:
@@ -72,22 +119,39 @@ def _resolve_secret_key() -> str:
     # 3. Auto-generate and persist — create with 0o600 from the start to avoid
     #    a brief window where the file is world-readable.
     key = secrets.token_hex(32)
-    os.makedirs(os.path.dirname(_SECRET_KEY_FILE), exist_ok=True)
+    try:
+        os.makedirs(os.path.dirname(_SECRET_KEY_FILE), exist_ok=True)
+    except (PermissionError, OSError) as exc:
+        logger.warning(
+            "Could not create directory %s: %s. "
+            "The auto-generated SECRET_KEY will only be held in memory and "
+            "will change on next restart. Set the SECRET_KEY env var for "
+            "persistence.",
+            os.path.dirname(_SECRET_KEY_FILE), exc,
+        )
+        return key
+
     try:
         fd = os.open(_SECRET_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(key)
     except FileExistsError:
         # Another process beat us to it — use the existing key
-        st = os.stat(_SECRET_KEY_FILE)
-        if _stat.S_IMODE(st.st_mode) != 0o600:
-            logger.warning("Secret key file %s has loose permissions; fixing.", _SECRET_KEY_FILE)
-            os.chmod(_SECRET_KEY_FILE, 0o600)
+        _fix_key_file_permissions()
         with open(_SECRET_KEY_FILE) as f:
             existing = f.read().strip()
         if not existing:
             raise ValueError(f"Secret key file exists at {_SECRET_KEY_FILE} but is empty; remove it and restart.")
         return existing
+    except (PermissionError, OSError) as exc:
+        logger.warning(
+            "Could not write secret key to %s: %s. "
+            "The auto-generated SECRET_KEY will only be held in memory and "
+            "will change on next restart. Set the SECRET_KEY env var for "
+            "persistence.",
+            _SECRET_KEY_FILE, exc,
+        )
+        return key
     logger.info("Auto-generated SECRET_KEY and saved to %s", _SECRET_KEY_FILE)
     return key
 

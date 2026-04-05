@@ -31,7 +31,26 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 register_template_filters(templates)
 
-# Prevent concurrent first-run POSTs from creating multiple admin accounts
+# Prevent concurrent first-run POSTs from creating multiple admin accounts.
+#
+# Multi-worker safety note:
+# This asyncio.Lock only serialises requests within a single process.  For
+# multi-worker deployments the following defence-in-depth layers apply:
+#
+#   1. SQLite (the default backend) enforces a single-writer lock at the
+#      database level, so concurrent INSERTs from different workers are
+#      serialised automatically.
+#
+#   2. The re-check of `count == 0` inside the transaction (below) ensures
+#      that if two workers both pass the pre-lock check, only the first to
+#      commit will see count == 0.
+#
+#   3. The IntegrityError catch on commit handles the remaining edge case
+#      where a unique-constraint violation occurs (e.g. duplicate username).
+#
+# For PostgreSQL multi-worker deployments, layer (1) does not apply, but
+# layers (2) and (3) together provide the necessary safety net: the re-check
+# races are resolved by the IntegrityError catch on the unique constraint.
 _setup_lock = asyncio.Lock()
 
 
