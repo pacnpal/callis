@@ -23,7 +23,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 - Rate limiting on web UI login
 - Works on a LAN or behind any reverse proxy
 - First-run setup wizard — no `.env` configuration required
-- Single `docker compose up` deployment
+- One-command deploy from a pre-built image — no build step required
 
 ---
 
@@ -37,13 +37,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 
 ## Quick Start
 
-```bash
-git clone https://github.com/pacnpal/callis.git
-cd callis
-docker compose up -d
-```
-
-Or use a pre-built image:
+Create a `docker-compose.yml` with the following contents and run `docker compose up -d`:
 
 ```yaml
 services:
@@ -78,6 +72,16 @@ docker run -d \
 ```
 
 No `.env` file needed — the setup wizard handles first-run configuration. `SECRET_KEY` is auto-generated and persisted to the data volume.
+
+### Building from source
+
+If you want to modify Callis or run the development build:
+
+```bash
+git clone https://github.com/pacnpal/callis.git
+cd callis
+docker compose up -d
+```
 
 > **Requires Docker Compose v2.24.0+** for the optional `.env` file syntax used in `docker-compose.yml`. Run `docker compose version` to check.
 
