@@ -16,7 +16,7 @@ These are non-negotiable rules enforced in code, not guidelines.
 
 - On first start with an empty database, all web requests redirect to `/setup` (enforced by `SetupGuardMiddleware`).
 - The setup wizard creates the initial admin account and requires TOTP enrollment before granting access.
-- `/setup` routes return 404 once any user exists in the database — the wizard cannot be re-triggered.
+- Once any user exists in the database, the account-creation step (`GET /setup` and `POST /setup`) returns 404 and cannot be re-triggered. The TOTP enrollment step (`/setup/totp`) remains accessible only to the session established during that wizard run, until enrollment is completed.
 - `SECRET_KEY` is auto-generated using `openssl rand -hex 32` if not provided in `.env`, and persisted to `/data/.secret_key`.
 - File permissions are enforced on **every boot**: `/data` (700), `.secret_key` (600), `callis.db` (600), SSH host key (600).
 

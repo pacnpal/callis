@@ -20,6 +20,10 @@ if [ -n "${SECRET_KEY:-}" ]; then
 elif [ -f "$SECRET_KEY_FILE" ]; then
     chmod 600 "$SECRET_KEY_FILE"
     export SECRET_KEY=$(cat "$SECRET_KEY_FILE")
+    if [ -z "${SECRET_KEY:-}" ]; then
+        echo "FATAL: $SECRET_KEY_FILE exists but is empty. Remove it and restart." >&2
+        exit 1
+    fi
 else
     export SECRET_KEY=$(openssl rand -hex 32)
     (

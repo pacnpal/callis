@@ -58,6 +58,10 @@ def _resolve_secret_key() -> str:
 
     # 2. Check persisted file (from previous run or setup wizard)
     try:
+        stat = os.stat(_SECRET_KEY_FILE)
+        if stat.st_mode & 0o177:
+            logger.warning("Secret key file %s has loose permissions; fixing.", _SECRET_KEY_FILE)
+            os.chmod(_SECRET_KEY_FILE, 0o600)
         with open(_SECRET_KEY_FILE) as f:
             key = f.read().strip()
             if key:

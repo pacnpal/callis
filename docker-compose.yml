@@ -11,7 +11,9 @@ services:
       - callis_audit_logs:/audit
       - callis_hostkeys:/etc/ssh/host_keys
       - callis_sshd_logs:/var/log/callis
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
 
   fail2ban:
     image: crazymax/fail2ban:1.1.0
@@ -24,7 +26,9 @@ services:
     volumes:
       - callis_sshd_logs:/var/log/callis-sshd:ro
       - ./fail2ban:/data
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
 
 volumes:
   callis_db:

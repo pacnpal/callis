@@ -144,6 +144,9 @@ async def setup_totp_page(request: Request, user: User = Depends(get_current_use
     if user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
 
+    if not user.totp_secret:
+        return RedirectResponse(url="/totp/setup", status_code=303)
+
     from core import decrypt_totp_secret
     secret = decrypt_totp_secret(user.totp_secret)
     uri = get_totp_uri(secret, user.username)
@@ -167,6 +170,9 @@ async def setup_totp_verify(
 ):
     if user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
+
+    if not user.totp_secret:
+        return RedirectResponse(url="/totp/setup", status_code=303)
 
     from core import decrypt_totp_secret
     secret = decrypt_totp_secret(user.totp_secret)
