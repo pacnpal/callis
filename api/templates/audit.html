@@ -51,19 +51,7 @@
       </tr>
     </thead>
     <tbody id="audit-table-body">
-      {% for entry in entries %}
-      <tr>
-        <td class="text-small">{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-        <td><span class="badge badge-action badge-{{ entry.action.value }}">{{ entry.action.value | replace("_", " ") }}</span></td>
-        <td>{{ entry.actor.username if entry.actor else "system" }}</td>
-        <td class="text-small"><span class="target-type">{{ entry.target_type | replace("_", " ") }}</span>{% if entry.target_id %} <span class="target-label">{{ entry.target_id[:8] }}</span>{% endif %}</td>
-        <td class="text-small"><code>{{ entry.source_ip or "" }}</code></td>
-        <td class="text-small text-muted">{% if entry.detail %}{% for k, v in entry.detail.items() %}<span class="detail-key">{{ k | replace("_", " ") }}:</span> {{ v }}{% if not loop.last %} &middot; {% endif %}{% endfor %}{% endif %}</td>
-      </tr>
-      {% endfor %}
-      {% if not entries %}
-      <tr><td colspan="6" class="text-muted">No audit entries found.</td></tr>
-      {% endif %}
+      {% include "partials/audit_rows.html" %}
     </tbody>
   </table>
 </figure>

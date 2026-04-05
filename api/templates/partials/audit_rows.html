@@ -5,7 +5,17 @@
   <td>{{ entry.actor.username if entry.actor else "system" }}</td>
   <td class="text-small"><span class="target-type">{{ entry.target_type | replace("_", " ") }}</span>{% if entry.target_id %} <span class="target-label">{{ entry.target_id[:8] }}</span>{% endif %}</td>
   <td class="text-small"><code>{{ entry.source_ip or "" }}</code></td>
-  <td class="text-small text-muted">{% if entry.detail %}{% for k, v in entry.detail.items() %}<span class="detail-key">{{ k | replace("_", " ") }}:</span> {{ v }}{% if not loop.last %} &middot; {% endif %}{% endfor %}{% endif %}</td>
+  <td class="text-small text-muted">
+    {% if entry.detail %}
+      {% if entry.detail is mapping %}
+        {% for k, v in entry.detail.items() %}
+          <span class="detail-key">{{ k | replace("_", " ") }}:</span> {{ v }}{% if not loop.last %} &middot; {% endif %}
+        {% endfor %}
+      {% else %}
+        {{ entry.detail | tojson }}
+      {% endif %}
+    {% endif %}
+  </td>
 </tr>
 {% endfor %}
 {% if not entries %}
