@@ -2,10 +2,11 @@ import base64
 import io
 
 import qrcode
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from core import (
     RESERVED_USERNAMES,
@@ -24,6 +25,7 @@ from core import (
 )
 from middleware.setup_guard import SetupGuardMiddleware
 from models import AuditAction, User, UserRole
+from dependencies import get_current_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -80,6 +82,15 @@ async def setup_submit(
     # Create admin user
     factory = get_session_factory()
     async with factory() as db:
+        # Check for existing username to avoid an IntegrityError on commit
+        existing = await db.execute(select(User).where(User.username == username))
+        if existing.scalar_one_or_none():
+            return templates.TemplateResponse(
+                "setup.html",
+                {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
+                status_code=400,
+            )
+
         admin = User(
             username=username,
             display_name=display_name,
@@ -91,7 +102,6 @@ async def setup_submit(
         totp_secret = generate_totp_secret()
         admin.totp_secret = encrypt_totp_secret(totp_secret)
         db.add(admin)
-        await db.commit()
 
         await write_audit_log(
             db,
@@ -102,6 +112,15 @@ async def setup_submit(
             source_ip=request.client.host if request.client else None,
             detail={"username": username, "role": "admin", "source": "setup_wizard"},
         )
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            return templates.TemplateResponse(
+                "setup.html",
+                {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
+                status_code=400,
+            )
 
     # Set session cookie so TOTP step is authenticated
     token = create_jwt(admin.id)
@@ -119,10 +138,9 @@ async def setup_submit(
 
 
 @router.get("/setup/totp")
-async def setup_totp_page(request: Request):
-    user = getattr(request.state, "user", None)
-    if not user or user.totp_enrolled:
-        raise HTTPException(status_code=404)
+async def setup_totp_page(request: Request, user: User = Depends(get_current_user)):
+    if user.totp_enrolled:
+        return RedirectResponse(url="/dashboard", status_code=303)
 
     from core import decrypt_totp_secret
     secret = decrypt_totp_secret(user.totp_secret)
@@ -143,10 +161,10 @@ async def setup_totp_page(request: Request):
 async def setup_totp_verify(
     request: Request,
     totp_code: str = Form(...),
+    user: User = Depends(get_current_user),
 ):
-    user = getattr(request.state, "user", None)
-    if not user or user.totp_enrolled:
-        raise HTTPException(status_code=404)
+    if user.totp_enrolled:
+        return RedirectResponse(url="/dashboard", status_code=303)
 
     from core import decrypt_totp_secret
     secret = decrypt_totp_secret(user.totp_secret)
@@ -169,7 +187,6 @@ async def setup_totp_verify(
         result = await db.execute(select(User).where(User.id == user.id))
         db_user = result.scalar_one()
         db_user.totp_enrolled = True
-        await db.commit()
 
         await write_audit_log(
             db,
@@ -180,6 +197,7 @@ async def setup_totp_verify(
             source_ip=request.client.host if request.client else None,
             detail={"source": "setup_wizard"},
         )
+        await db.commit()
 
     # Mark setup as complete so middleware stops redirecting
     SetupGuardMiddleware._setup_complete = True

@@ -37,6 +37,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 ## Quick Start
 
 ```bash
+cp .env.example .env
 docker compose up -d
 ```
 
@@ -59,7 +60,7 @@ volumes:
   callis_hostkeys:
 ```
 
-No `.env` file is required for basic setup — the setup wizard handles everything.
+Copy `.env.example` to `.env` before starting — all values are optional, the setup wizard handles first-run configuration.
 
 - **Web UI:** `http://<your-server-ip>:8080`
 - **SSH jump port:** `2222`
@@ -92,7 +93,6 @@ The default. Good for home labs and internal networks.
 
 ```bash
 cp .env.example .env
-# Set SECRET_KEY and ADMIN_PASSWORD
 docker compose up -d
 ```
 

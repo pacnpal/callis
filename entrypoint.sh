@@ -6,10 +6,18 @@ export CALLIS_API_HOST="${CALLIS_API_HOST:-localhost}"
 export CALLIS_SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/callis/auth.log}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 
-# Resolve SECRET_KEY: env var → persisted file → defer to app (auto-generates on first request)
+# Resolve SECRET_KEY: env var → persisted file → generate and persist for first start
 SECRET_KEY_FILE="/data/.secret_key"
-if [ -z "${SECRET_KEY:-}" ] && [ -f "$SECRET_KEY_FILE" ]; then
+if [ -n "${SECRET_KEY:-}" ]; then
+    # Env var is authoritative — always persist it so the API and sshd stay in sync
+    umask 077
+    printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
+elif [ -f "$SECRET_KEY_FILE" ]; then
     export SECRET_KEY=$(cat "$SECRET_KEY_FILE")
+else
+    export SECRET_KEY=$(openssl rand -hex 32)
+    umask 077
+    printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
 fi
 
 # Derive internal API shared secret from SECRET_KEY via HMAC-SHA256
