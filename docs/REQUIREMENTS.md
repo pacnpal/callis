@@ -17,7 +17,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-SSH-03** — The SSH server MUST authenticate users via SSH public key only. Password authentication MUST be disabled.
 - **FR-SSH-04** — The SSH server MUST NOT provide an interactive shell to any user. It is a pure jump point.
 - **FR-SSH-05** — The SSH server MUST use `AuthorizedKeysCommand` to fetch active public keys from the API at connection time. This ensures key revocation is instant.
-- **FR-SSH-06** — The SSH server MUST disable agent forwarding by default to limit blast radius if the bastion is compromised. Agent forwarding MAY be enabled per-user if required.
+- **FR-SSH-06** — The SSH server MUST disable agent forwarding (`AllowAgentForwarding no`) to limit blast radius if the bastion is compromised.
 - **FR-SSH-07** — The SSH server MUST log all connection attempts (accepted and rejected) with timestamp, username, source IP, and source port.
 - **FR-SSH-08** — The SSH server MUST only accept Ed25519 host keys. RSA, DSA, and ECDSA host keys MUST NOT be generated or accepted.
 - **FR-SSH-09** — SSH host keys MUST be generated on first run and persisted in a named Docker volume. They MUST NOT be regenerated on container restart.

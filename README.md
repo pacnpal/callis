@@ -8,7 +8,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 
 ## Features
 
-- Hardened OpenSSH jump server (Ed25519 host key; Ed25519 or RSA 4096+ user keys; no passwords, no shell)
+- Hardened OpenSSH jump server (Ed25519 host key; Ed25519 or RSA 4096+ user keys; no passwords, no interactive shell)
 - Web UI built with FastAPI + Jinja2 + htmx — no build step, no Node.js
 - Per-user OS accounts with instant key revocation
 - Mandatory TOTP 2FA for all web UI users
@@ -295,9 +295,9 @@ ssh my-internal-server
 |---|---|---|
 | `WEB_PORT` (8080) | Web UI | Yes |
 | `SSH_PORT` (2222) | SSH jump server | Yes |
-| 8081 | Internal key endpoint | **No** (Docker network only) |
+| 8081 | Internal API (keys, resolve, hosts) | **No** (container-internal only) |
 
-Port 8081 serves the internal API used by the SSH server to fetch authorized keys. It is never exposed outside the Docker network.
+Port 8081 serves the internal API used by the SSH server to fetch authorized keys, resolve host tags, and list assigned hosts. It is bound within the container and never exposed outside. All requests require a valid `X-Internal-Secret` header (HMAC-SHA256 derived from `SECRET_KEY`).
 
 ---
 
@@ -345,7 +345,7 @@ Database tables are created automatically on startup. Back up your database befo
 - **TOTP is mandatory.** Every user must enroll in 2FA before accessing any page.
 - **Audit log is append-only.** No API or UI can delete or modify audit entries.
 - **Authentication checks are hardened.** Login applies secure password verification and enforces TOTP-based 2FA.
-- **sshd is hardened.** Ed25519 and RSA (4096+ bit) keys accepted, no passwords, no root login, no shell access, modern cipher suite.
+- **sshd is hardened.** Ed25519 and RSA (4096+ bit) keys accepted, no passwords, no root login, no interactive shell (ForceCommand allows only `resolve` and `list`), modern cipher suite.
 
 ---
 

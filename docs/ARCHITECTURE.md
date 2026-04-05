@@ -2,28 +2,31 @@
 
 ## 1. System Overview
 
-Callis consists of two required containers and two optional sidecars, orchestrated via Docker Compose.
+Callis runs as a single unified container (`python:3.12-slim`) managed by supervisord, with an optional fail2ban sidecar. The container runs both the FastAPI application and OpenSSH server as supervised processes.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Docker Network                       │
-│                                                         │
-│  ┌─────────────┐        ┌─────────────────────────┐    │
-│  │  sshd       │◄───────│  api                    │    │
-│  │  (Alpine +  │  keys  │  (FastAPI + Jinja2)     │    │
-│  │   OpenSSH)  │        │                         │    │
-│  │             │        │  :8080 — web UI         │    │
-│  │  :2222      │        │  :8081 — internal only  │    │
-│  └─────────────┘        └─────────────────────────┘    │
-│         │                          │                    │
-│  ┌──────┴──────┐        ┌──────────┴──────────┐        │
-│  │  fail2ban   │        │  caddy (optional)    │        │
-│  │  (sidecar)  │        │  (sidecar, profile)  │        │
-│  └─────────────┘        └─────────────────────-┘        │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                     Docker Network                        │
+│                                                          │
+│  ┌────────────────────────────────────────────────┐      │
+│  │  callis (unified container)                    │      │
+│  │  supervisord                                   │      │
+│  │  ├── sshd (OpenSSH)         :22 → host :2222  │      │
+│  │  │   ├── auth-keys.sh → http://localhost:8081  │      │
+│  │  │   └── callis-cmd.sh (ForceCommand)          │      │
+│  │  └── api (FastAPI + Uvicorn)                   │      │
+│  │      ├── :8080 — web UI      → host :8080      │      │
+│  │      └── :8081 — internal API (localhost only)  │      │
+│  └────────────────────────────────────────────────┘      │
+│         │                                                │
+│  ┌──────┴──────┐                                         │
+│  │  fail2ban   │                                         │
+│  │  (optional) │                                         │
+│  └─────────────┘                                         │
+└──────────────────────────────────────────────────────────┘
 
 External access:
-  :2222 → sshd (SSH jump connections)
+  :2222 → sshd (SSH jump connections + CLI resolve/list)
   :8080 → api  (web UI, or via reverse proxy)
 ```
 
@@ -31,17 +34,18 @@ External access:
 
 ## 2. Components
 
-### 2.1 sshd Container
+### 2.1 sshd Process
 
-**Base image:** `alpine:latest`
-**Purpose:** Hardened OpenSSH server. Pure jump point — no shell, no services beyond sshd.
+**Managed by:** supervisord (within the unified container)
+**Purpose:** Hardened OpenSSH server. Accepts SSH connections for jump/ProxyJump and CLI commands (`resolve`, `list`).
 
 Key behaviours:
 - On first start, generates an Ed25519 host key and persists it to a named volume.
 - Runs `sshd` with a hardened configuration (see Security document).
-- `AuthorizedKeysCommand` is set to `/etc/ssh/auth-keys.sh %u`, which makes an HTTP request to `http://api:8081/internal/keys/{username}` and returns the active public keys for that user.
-- When a Callis user is created, a corresponding OS user account is created in the container. When deleted or deactivated, the OS account is removed or locked.
-- OS user accounts have `/sbin/nologin` as their shell. They exist solely to satisfy OpenSSH's per-user key lookup.
+- `AuthorizedKeysCommand` is set to `/etc/ssh/auth-keys.sh %u`, which makes an HTTP request to `http://localhost:8081/internal/keys/{username}` (with `X-Internal-Secret` header) and returns the active public keys for that user.
+- OS user accounts are created on-the-fly by `auth-keys.sh` during SSH authentication — only when the API returns valid keys for that username. Accounts are not pre-created.
+- When a user is deactivated, the API stops returning keys, so the next SSH auth attempt fails. The OS account is not explicitly removed.
+- OS user accounts use the system `nologin` shell (path resolved dynamically). They exist solely to satisfy OpenSSH's per-user key lookup.
 
 Key files:
 - `/etc/ssh/sshd_config` — hardened configuration, templated from environment at startup
@@ -49,10 +53,10 @@ Key files:
 - `/etc/ssh/callis-cmd.sh` — the `ForceCommand` script: routes `resolve <tag>` and `list` commands, denies all other shell access
 - `/etc/ssh/host_keys/ssh_host_ed25519_key` — persisted host key (volume-mounted)
 
-### 2.2 api Container
+### 2.2 api Process
 
-**Base image:** `python:3.12-slim`
-**Purpose:** FastAPI application serving both the web UI and the internal key endpoint.
+**Managed by:** supervisord (within the unified container)
+**Purpose:** FastAPI application serving both the web UI and the internal API.
 
 The application is split across two listeners:
 - **Port 8080** — public-facing web UI and all authenticated routes
@@ -73,9 +77,8 @@ The application is split across two listeners:
 **Directory layout:**
 ```
 api/
-├── Dockerfile
+├── Dockerfile               # Standalone API image (for split deploys)
 ├── pyproject.toml
-├── uv.lock
 ├── main.py                  # App factory, mounts routers, middleware
 ├── core.py                  # Config, DB session, security utilities
 ├── models.py                # All SQLAlchemy models
@@ -90,6 +93,9 @@ api/
 │   ├── hosts.py             # /hosts — jump target management
 │   ├── audit.py             # /audit — log viewer
 │   └── internal.py          # /internal/keys, /resolve, /hosts — sshd endpoints
+├── static/
+│   ├── app.js               # Dialog open/close, htmx helpers
+│   └── style.css            # Custom styles (extends Pico CSS)
 └── templates/
     ├── base.html            # Nav, CDN links, flash messages
     ├── login.html
@@ -99,31 +105,24 @@ api/
     ├── user_detail.html
     ├── hosts.html
     ├── audit.html
+    ├── 500.html             # Generic error page
     └── partials/            # htmx fragment responses
         ├── user_row.html
         ├── key_list.html
         ├── host_row.html
+        ├── ssh_config.html
         └── audit_rows.html
 ```
 
 ### 2.3 fail2ban Sidecar (Optional)
 
-**Base image:** `crazymax/fail2ban:latest`
+**Base image:** `crazymax/fail2ban:1.1.0`
 **Purpose:** Watches sshd logs and bans IPs that repeatedly fail authentication.
 
+- Activated via Docker Compose profile: `docker compose --profile fail2ban up -d`
 - Runs with `network_mode: host` and `NET_ADMIN` + `NET_RAW` capabilities to issue iptables bans.
-- Reads logs from a shared Docker volume mounted from the sshd container.
+- Reads logs from a shared Docker volume mounted from the callis container (`callis_sshd_logs`).
 - Configuration in `fail2ban/jail.local` and `fail2ban/filter.d/sshd.conf`.
-
-### 2.4 Caddy Sidecar (Optional)
-
-**Base image:** `caddy:latest`
-**Purpose:** Automatic TLS termination for users who don't have an existing reverse proxy.
-
-- Activated via Docker Compose profile: `docker compose --profile caddy up -d`
-- Reads `CALLIS_DOMAIN` from environment to configure the virtual host.
-- Proxies HTTPS to the api container on port 8080.
-- Does NOT proxy the SSH port — that must be handled at the network/firewall level.
 
 ---
 
@@ -248,10 +247,16 @@ The SSH port (`sshd:2222`) is exposed directly to the host. It does not pass thr
 
 ```
 callis/
+├── Dockerfile                  # Unified container (API + sshd via supervisord)
 ├── docker-compose.yml
-├── docker-compose.override.yml    # Caddy sidecar (opt-in)
 ├── .env.example
+├── .version                    # Semantic version (read by entrypoint)
+├── entrypoint.sh               # Unified container entrypoint (key gen, secret derivation)
+├── supervisord.conf            # Manages api + sshd processes
 ├── README.md
+├── .github/
+│   └── workflows/
+│       └── release.yml         # GitHub Actions: build + push to GHCR on tag
 ├── docs/
 │   ├── REQUIREMENTS.md
 │   ├── ARCHITECTURE.md
@@ -261,15 +266,15 @@ callis/
 ├── scripts/
 │   └── callis.sh               # Client-side CLI (source into shell)
 ├── sshd/
-│   ├── Dockerfile
+│   ├── Dockerfile              # Standalone sshd image (Alpine, for split deploys)
 │   ├── sshd_config
-│   ├── auth-keys.sh
+│   ├── auth-keys.sh            # AuthorizedKeysCommand script
 │   ├── callis-cmd.sh           # ForceCommand script (resolve/list/deny)
-│   └── entrypoint.sh
+│   ├── banner.txt
+│   └── entrypoint.sh           # Standalone sshd entrypoint
 ├── api/
-│   ├── Dockerfile
+│   ├── Dockerfile              # Standalone API image (for split deploys)
 │   ├── pyproject.toml
-│   ├── uv.lock
 │   ├── main.py
 │   ├── core.py
 │   ├── models.py
@@ -284,6 +289,9 @@ callis/
 │   │   ├── hosts.py
 │   │   ├── audit.py
 │   │   └── internal.py
+│   ├── static/
+│   │   ├── app.js
+│   │   └── style.css
 │   └── templates/
 │       ├── base.html
 │       ├── login.html
@@ -293,13 +301,13 @@ callis/
 │       ├── user_detail.html
 │       ├── hosts.html
 │       ├── audit.html
+│       ├── 500.html
 │       └── partials/
 │           ├── user_row.html
 │           ├── key_list.html
 │           ├── host_row.html
+│           ├── ssh_config.html
 │           └── audit_rows.html
-├── caddy/
-│   └── Caddyfile
 └── fail2ban/
     ├── jail.local
     └── filter.d/

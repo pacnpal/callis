@@ -15,7 +15,7 @@
 The simplest setup. Access the web UI via IP and port on your local network.
 
 ```bash
-git clone https://github.com/yourname/callis.git
+git clone https://github.com/pacnpal/callis.git
 cd callis
 cp .env.example .env
 ```
@@ -123,9 +123,9 @@ In OIDC mode, Callis delegates authentication entirely to the OIDC provider. TOT
 |---|---|---|---|
 | `${WEB_PORT}` (8080) | TCP | Web UI | Yes — to host |
 | `${SSH_PORT}` (2222) | TCP | SSH jump server | Yes — to host |
-| `8081` | TCP | Internal API (keys, resolve, hosts) | **No** — Docker network only |
+| `8081` | TCP | Internal API (keys, resolve, hosts) | **No** — container-internal only |
 
-The internal API (8081) is used exclusively by the sshd container to fetch authorized keys and resolve host tags. It must never be exposed outside the Docker network.
+The internal API (8081) is used by the sshd process to fetch authorized keys, resolve host tags, and list assigned hosts. It runs within the unified container and is never exposed. All requests require a valid `X-Internal-Secret` header.
 
 ---
 

@@ -11,7 +11,7 @@
 ### Running the full stack locally
 
 ```bash
-git clone https://github.com/yourname/callis.git
+git clone https://github.com/pacnpal/callis.git
 cd callis
 cp .env.example .env
 docker compose up -d
@@ -71,8 +71,9 @@ Never check roles inline. Never check `request.state.user` directly in a route w
 Use the `get_db` dependency for database sessions:
 
 ```python
-async def my_route(db: Session = Depends(get_db), user: User = Depends(require_totp_complete)):
-    items = db.query(MyModel).filter(...).all()
+async def my_route(db: AsyncSession = Depends(get_db), user: User = Depends(require_totp_complete)):
+    result = await db.execute(select(MyModel).where(...))
+    items = result.scalars().all()
     ...
 ```
 
@@ -83,7 +84,7 @@ Every admin action and security event must write an audit log entry:
 ```python
 from core import write_audit_log
 
-write_audit_log(
+await write_audit_log(
     db=db,
     actor_id=current_user.id,
     action=AuditAction.KEY_REVOKED,
