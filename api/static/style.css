@@ -90,3 +90,29 @@ table { font-size: 0.9em; }
 .getting-started ol { padding-left: 1.25rem; }
 .getting-started li { margin-bottom: 0.5rem; }
 .alias-col { font-family: var(--pico-font-family-monospace, monospace); font-size: 0.85em; }
+.detail-key { font-weight: 600; text-transform: capitalize; }
+.badge-action { text-transform: capitalize; }
+/* Auth events */
+.badge-login_success { background: var(--pico-ins-color); color: #fff; }
+.badge-login_failure { background: var(--pico-del-color); color: #fff; }
+.badge-logout { background: #6b7280; color: #fff; }
+.badge-totp_setup { background: #0891b2; color: #fff; }
+.badge-totp_failure { background: var(--pico-del-color); color: #fff; }
+/* Key events */
+.badge-key_added { background: #2563eb; color: #fff; }
+.badge-key_revoked { background: #dc2626; color: #fff; }
+.badge-key_used { background: #059669; color: #fff; }
+/* User events */
+.badge-user_created { background: #d97706; color: #fff; }
+.badge-user_activated { background: var(--pico-ins-color); color: #fff; }
+.badge-user_deactivated { background: #6b7280; color: #fff; }
+.badge-user_deleted { background: var(--pico-del-color); color: #fff; }
+.badge-user_role_changed { background: #7c3aed; color: #fff; }
+/* Host events */
+.badge-host_created { background: #7c3aed; color: #fff; }
+.badge-host_deactivated { background: #6b7280; color: #fff; }
+.badge-host_deleted { background: var(--pico-del-color); color: #fff; }
+.badge-host_assigned { background: #2563eb; color: #fff; }
+.badge-host_unassigned { background: #d97706; color: #fff; }
+.target-label { font-family: var(--pico-font-family-monospace, monospace); font-size: 0.85em; }
+.target-type { font-weight: 600; text-transform: capitalize; }

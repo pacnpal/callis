@@ -54,11 +54,11 @@
       {% for entry in entries %}
       <tr>
         <td class="text-small">{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-        <td><span class="badge">{{ entry.action.value }}</span></td>
+        <td><span class="badge badge-action badge-{{ entry.action.value }}">{{ entry.action.value | replace("_", " ") }}</span></td>
         <td>{{ entry.actor.username if entry.actor else "system" }}</td>
-        <td class="text-small">{{ entry.target_type }}{% if entry.target_id %}:{{ entry.target_id[:8] }}{% endif %}</td>
+        <td class="text-small"><span class="target-type">{{ entry.target_type | replace("_", " ") }}</span>{% if entry.target_id %} <span class="target-label">{{ entry.target_id[:8] }}</span>{% endif %}</td>
         <td class="text-small"><code>{{ entry.source_ip or "" }}</code></td>
-        <td class="text-small text-muted">{{ entry.detail | tojson if entry.detail else "" }}</td>
+        <td class="text-small text-muted">{% if entry.detail %}{% for k, v in entry.detail.items() %}<span class="detail-key">{{ k | replace("_", " ") }}:</span> {{ v }}{% if not loop.last %} &middot; {% endif %}{% endfor %}{% endif %}</td>
       </tr>
       {% endfor %}
       {% if not entries %}
