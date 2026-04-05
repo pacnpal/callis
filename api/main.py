@@ -122,6 +122,62 @@ async def dashboard(
     )
 
 
+# CLI installer — curl http://callis:8080/install.sh | bash
+@app.get("/install.sh")
+async def install_script(request: Request):
+    from fastapi.responses import Response
+    settings = get_settings()
+    base = settings.BASE_URL.rstrip("/")
+    installer = f'''#!/bin/sh
+set -e
+
+CALLIS_DIR="$HOME/.config/callis"
+SCRIPT_URL="{base}/callis.sh"
+
+echo "Installing Callis CLI..."
+mkdir -p "$CALLIS_DIR"
+curl -fsSL "$SCRIPT_URL" -o "$CALLIS_DIR/callis.sh"
+chmod 644 "$CALLIS_DIR/callis.sh"
+
+SOURCE_LINE='. "$HOME/.config/callis/callis.sh"'
+ADDED=0
+
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$rc" ]; then
+        if ! grep -qF "callis/callis.sh" "$rc"; then
+            printf '\\n# Callis CLI\\n%s\\n' "$SOURCE_LINE" >> "$rc"
+            echo "  Added to $(basename "$rc")"
+            ADDED=1
+        else
+            echo "  Already in $(basename "$rc")"
+            ADDED=1
+        fi
+    fi
+done
+
+if [ "$ADDED" -eq 0 ]; then
+    echo "  No .bashrc or .zshrc found. Add this to your shell rc:"
+    echo "    $SOURCE_LINE"
+fi
+
+echo ""
+echo "Done! Run 'source $CALLIS_DIR/callis.sh' or open a new shell, then:"
+echo "  callis setup"
+echo "  callis list"
+echo "  callis <host-alias>"
+'''
+    return Response(content=installer, media_type="text/plain")
+
+
+# Serve the raw CLI script
+@app.get("/callis.sh")
+async def callis_script():
+    from pathlib import Path
+    from fastapi.responses import Response
+    script = (Path(__file__).parent.parent / "scripts" / "callis.sh").read_text()
+    return Response(content=script, media_type="text/plain")
+
+
 # Root redirect
 @app.get("/")
 async def root():
