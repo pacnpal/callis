@@ -1,20 +1,16 @@
 #!/bin/sh
 set -e
 
-# Fail fast if required env vars are missing
-if [ -z "${SECRET_KEY:-}" ]; then
-    echo "FATAL: SECRET_KEY is not set. Generate one with: openssl rand -hex 32" >&2
-    exit 1
-fi
-if [ -z "${ADMIN_PASSWORD:-}" ]; then
-    echo "FATAL: ADMIN_PASSWORD is not set. Set a strong password in .env" >&2
-    exit 1
-fi
-
 # Set defaults for unified container
 export CALLIS_API_HOST="${CALLIS_API_HOST:-localhost}"
 export CALLIS_SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/callis/auth.log}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
+
+# Resolve SECRET_KEY: env var → persisted file → defer to app (auto-generates on first request)
+SECRET_KEY_FILE="/data/.secret_key"
+if [ -z "${SECRET_KEY:-}" ] && [ -f "$SECRET_KEY_FILE" ]; then
+    export SECRET_KEY=$(cat "$SECRET_KEY_FILE")
+fi
 
 # Derive internal API shared secret from SECRET_KEY via HMAC-SHA256
 if [ -n "${SECRET_KEY:-}" ] && [ -z "${CALLIS_INTERNAL_SECRET:-}" ]; then

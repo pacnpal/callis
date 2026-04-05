@@ -36,47 +36,11 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 
 ## Quick Start
 
-### Option A — Docker Hub / GHCR (recommended)
-
-```bash
-docker pull ghcr.io/pacnpal/callis:latest
-# or: docker pull pacnpal/callis:latest
-# or pin a version: docker pull ghcr.io/pacnpal/callis:0.1.0
-```
-
-```bash
-git clone https://github.com/pacnpal/callis.git
-cd callis
-cp .env.example .env
-```
-
-### Option B — Build from source
-
-```bash
-git clone https://github.com/pacnpal/callis.git
-cd callis
-cp .env.example .env
-docker compose up -d --build
-```
-
-Edit `.env` — set these two required values:
-
-```bash
-# Generate a secret key
-openssl rand -hex 32
-
-# Set in .env:
-SECRET_KEY=<paste-your-key-here>
-ADMIN_PASSWORD=<choose-a-strong-password>
-```
-
-Start Callis:
-
 ```bash
 docker compose up -d
 ```
 
-Or use this minimal `docker-compose.yml`:
+Or use a pre-built image:
 
 ```yaml
 services:
@@ -89,12 +53,13 @@ services:
     volumes:
       - callis_db:/data
       - callis_hostkeys:/etc/ssh/host_keys
-    env_file: .env
 
 volumes:
   callis_db:
   callis_hostkeys:
 ```
+
+No `.env` file is required for basic setup — the setup wizard handles everything.
 
 - **Web UI:** `http://<your-server-ip>:8080`
 - **SSH jump port:** `2222`
@@ -103,11 +68,11 @@ volumes:
 
 ## First-Run Walkthrough
 
-1. Open the web UI at `http://<server>:8080`
-2. Log in with your admin credentials (username: `admin`, password: from `.env`)
-3. You'll be prompted to **set up TOTP 2FA** — scan the QR code with your authenticator app
-4. Enter the 6-digit code to complete enrollment
-5. You're now on the dashboard
+1. Start Callis: `docker compose up -d`
+2. Open the web UI at `http://<server>:8080` — the **setup wizard** appears automatically
+3. **Create your admin account** — choose a username and strong password
+4. **Set up TOTP 2FA** — scan the QR code with your authenticator app, enter the 6-digit code
+5. You're automatically logged in to the dashboard
 
 **Next steps:**
 
@@ -276,9 +241,7 @@ ssh my-internal-server
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SECRET_KEY` | Yes | — | 32+ byte hex string for JWT signing and TOTP encryption |
-| `ADMIN_PASSWORD` | Yes | — | Initial admin password (first startup only) |
-| `ADMIN_USERNAME` | No | `admin` | Initial admin username |
+| `SECRET_KEY` | No | Auto-generated | 32+ byte hex string for JWT signing and TOTP encryption. Auto-generated and persisted to `/data/.secret_key` if not set. |
 | `DATABASE_URL` | No | `sqlite+aiosqlite:////data/callis.db` | Database URL (PostgreSQL supported) |
 | `SSH_PORT` | No | `2222` | External SSH port |
 | `WEB_PORT` | No | `8080` | External web UI port |

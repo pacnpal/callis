@@ -54,6 +54,7 @@ table { font-size: 0.9em; }
 .unassign-btn:focus-visible { outline: 2px solid var(--pico-primary); outline-offset: 2px; border-radius: var(--pico-border-radius); }
 .btn-sm { margin: 0; padding: 0.3rem 0.6rem; font-size: 0.85em; }
 .auth-card { max-width: 400px; margin: 2rem auto; }
+.setup-card { max-width: 500px; margin: 2rem auto; }
 .totp-card { max-width: 500px; margin: 2rem auto; }
 .totp-qr { text-align: center; margin: 1.5rem 0; }
 .totp-qr img { max-width: 250px; }
