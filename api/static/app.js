@@ -21,12 +21,6 @@
     if (MODES.indexOf(stored) !== -1) activeMode = stored;
   } catch (_) {}
 
-  // Also derive from data-theme if theme.js already applied one
-  if (activeMode === "system") {
-    var dt = document.documentElement.getAttribute("data-theme");
-    if (dt === "light" || dt === "dark") activeMode = dt;
-  }
-
   function apply(mode) {
     activeMode = mode;
     try { localStorage.setItem("callis-theme", mode); } catch (_) {}
