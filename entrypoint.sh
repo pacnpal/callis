@@ -91,8 +91,9 @@ else
     chmod 644 "${HOST_KEY}.pub"
 fi
 
-# Default env vars consumed by supervisord %(ENV_...)s interpolation
-export APP_VERSION="${APP_VERSION:-$(cat /app/.version 2>/dev/null || echo 'dev')}"
+# APP_VERSION is baked into the image at build time from the release tag (--build-arg APP_VERSION=...)
+# and falls back to 'dev' for local builds.
+export APP_VERSION="${APP_VERSION:-dev}"
 
 # Harden database file permissions if it exists
 if [ -f /data/callis.db ]; then
@@ -104,5 +105,5 @@ fi
 # Ensure log directory exists
 mkdir -p /var/log/callis
 
-echo "Starting Callis v$(cat /app/.version 2>/dev/null || echo 'dev')..."
+echo "Starting Callis v${APP_VERSION}..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/callis.conf

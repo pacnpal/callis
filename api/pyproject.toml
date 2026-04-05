@@ -1,6 +1,6 @@
 [project]
 name = "callis"
-version = "0.1.0"
+version = "0.2.0"
 description = "SSH bastion host with web management UI"
 requires-python = ">=3.12"
 dependencies = [

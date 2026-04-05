@@ -266,7 +266,6 @@ callis/
 ├── Dockerfile                  # Unified container (API + sshd via supervisord)
 ├── docker-compose.yml
 ├── .env.example
-├── .version                    # Semantic version (read by entrypoint)
 ├── entrypoint.sh               # Unified container entrypoint (key gen, secret derivation)
 ├── supervisord.conf            # Manages api + sshd processes
 ├── README.md

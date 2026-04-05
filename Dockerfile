@@ -27,9 +27,6 @@ COPY sshd/banner.txt /etc/ssh/banner.txt
 RUN chmod 0755 /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh && \
     chown root:root /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh /etc/ssh/sshd_config
 
-# --- Version file ---
-COPY .version /app/.version
-
 # --- Supervisor config ---
 COPY supervisord.conf /etc/supervisor/conf.d/callis.conf
 

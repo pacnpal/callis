@@ -27,20 +27,13 @@ logger = logging.getLogger("callis")
 
 
 def get_app_version() -> str:
-    """Read app version from APP_VERSION env var (set by Docker) or .version file."""
+    """Read app version from APP_VERSION env var (injected at Docker build time from the release tag).
+
+    In production, APP_VERSION is set via the --build-arg in the release workflow and baked
+    into the image as an ENV. In local dev it falls back to 'dev'.
+    """
     import os
-    v = os.environ.get("APP_VERSION", "").strip()
-    if v and v != "dev":
-        return v
-    # Check sibling path first (works in Docker where core.py and .version are both in /app/)
-    # then parent path (works in local dev where core.py is in api/ and .version is at repo root)
-    for rel in (".", ".."):
-        try:
-            with open(os.path.join(os.path.dirname(__file__), rel, ".version")) as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            continue
-    return "dev"
+    return os.environ.get("APP_VERSION", "").strip() or "dev"
 
 # ---------------------------------------------------------------------------
 # Settings

@@ -22,12 +22,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read version from .version
+      - name: Get version from release tag
         id: version
         run: |
-          VERSION=$(cat .version | tr -d '[:space:]')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Building version: $VERSION"
+          TAG="${{ github.event.release.tag_name || github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "version=${VERSION:-dev}" >> "$GITHUB_OUTPUT"
+          echo "Building version: ${VERSION:-dev}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
