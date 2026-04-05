@@ -102,6 +102,8 @@ async def setup_submit(
         totp_secret = generate_totp_secret()
         admin.totp_secret = encrypt_totp_secret(totp_secret)
         db.add(admin)
+        # Flush to assign admin.id before writing the audit log
+        await db.flush()
 
         await write_audit_log(
             db,

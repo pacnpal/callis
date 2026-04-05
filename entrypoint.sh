@@ -13,15 +13,19 @@ chmod 700 /data 2>/dev/null || true
 SECRET_KEY_FILE="/data/.secret_key"
 if [ -n "${SECRET_KEY:-}" ]; then
     # Env var is authoritative — always persist it so the API and sshd stay in sync
-    umask 077
-    printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
+    (
+        umask 077
+        printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
+    )
 elif [ -f "$SECRET_KEY_FILE" ]; then
     chmod 600 "$SECRET_KEY_FILE"
     export SECRET_KEY=$(cat "$SECRET_KEY_FILE")
 else
     export SECRET_KEY=$(openssl rand -hex 32)
-    umask 077
-    printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
+    (
+        umask 077
+        printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
+    )
 fi
 
 # Enforce permissions on secret key file every boot

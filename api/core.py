@@ -65,12 +65,25 @@ def _resolve_secret_key() -> str:
     except FileNotFoundError:
         pass
 
-    # 3. Auto-generate and persist
+    # 3. Auto-generate and persist — create with 0o600 from the start to avoid
+    #    a brief window where the file is world-readable.
     key = secrets.token_hex(32)
     os.makedirs(os.path.dirname(_SECRET_KEY_FILE), exist_ok=True)
-    with open(_SECRET_KEY_FILE, "w") as f:
-        f.write(key)
-    os.chmod(_SECRET_KEY_FILE, 0o600)
+    try:
+        fd = os.open(_SECRET_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(key)
+    except FileExistsError:
+        # Another process beat us to it — use the existing key
+        stat = os.stat(_SECRET_KEY_FILE)
+        if stat.st_mode & 0o177:
+            logger.warning("Secret key file %s has loose permissions; fixing.", _SECRET_KEY_FILE)
+            os.chmod(_SECRET_KEY_FILE, 0o600)
+        with open(_SECRET_KEY_FILE) as f:
+            existing = f.read().strip()
+        if not existing:
+            raise ValueError(f"Secret key file exists at {_SECRET_KEY_FILE} but is empty; remove it and restart.")
+        return existing
     logger.info("Auto-generated SECRET_KEY and saved to %s", _SECRET_KEY_FILE)
     return key
 
