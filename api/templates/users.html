@@ -33,9 +33,9 @@
 
       <label for="role">Role</label>
       <select id="role" name="role">
-        <option value="readonly">Read Only (view dashboard and own profile)</option>
-        <option value="operator">Operator (manage own keys, view hosts)</option>
-        <option value="admin">Admin (full access to users, hosts, and audit)</option>
+        <option value="readonly">Read Only (view dashboard, hosts, audit, and manage own keys/profile)</option>
+        <option value="operator">Operator (same access as read only: view dashboard, hosts, audit, and manage own keys/profile)</option>
+        <option value="admin">Admin (all operator access, plus manage users)</option>
       </select>
 
       <button type="submit">Create User</button>
