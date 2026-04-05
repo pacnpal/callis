@@ -181,6 +181,19 @@ async def run_servers():
     # Initialize DB before either server starts accepting connections
     await _init_db()
 
+    # Warn if no admin account has been created yet (first-run state)
+    from core import get_session_factory
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(select(func.count()).select_from(User))
+        if result.scalar() == 0:
+            logger.warning("=" * 60)
+            logger.warning("FIRST RUN: No admin account exists.")
+            logger.warning("Open http://<server>:8080 IMMEDIATELY to complete setup.")
+            logger.warning("The /setup page is publicly accessible until an admin")
+            logger.warning("account is created. Do not expose this port until done.")
+            logger.warning("=" * 60)
+
     settings = get_settings()
     log_level = settings.LOG_LEVEL.lower()
 

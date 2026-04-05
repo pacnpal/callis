@@ -71,6 +71,10 @@ No `.env` file needed — the setup wizard handles first-run configuration. `SEC
 
 ## First-Run Walkthrough
 
+> **Security notice:** The `/setup` page is publicly accessible until an admin account is created.
+> Complete setup immediately after starting the container for the first time.
+> The container logs will show a `FIRST RUN` warning until setup is complete.
+
 1. Start Callis: `docker compose up -d`
 2. Open the web UI at `http://<server>:8080` — the **setup wizard** appears automatically
 3. **Create your admin account** — choose a username and strong password
@@ -308,11 +312,11 @@ Database tables are created automatically on startup. Back up your database befo
 
 ## Security Notes
 
-- **SECRET_KEY is auto-generated** using `openssl rand -hex 32` on first start and persisted to `/data/.secret_key` with `chmod 600`. The `/data` volume is hardened to `chmod 700` on every boot.
+- **SECRET_KEY is auto-generated** on first start and persisted to `/data/.secret_key` with `chmod 600`. In Docker, `entrypoint.sh` uses `openssl rand -hex 32`; when running the API directly, `api/core.py` uses `secrets.token_hex(32)`. The `/data` volume is hardened to `chmod 700` on every boot.
 - **Private keys are never stored.** Callis accepts uploaded public keys only and does not collect, generate, or retain private keys.
 - **Public key text is write-only.** After upload, only the fingerprint, label, type, and dates are shown.
 - **Port 8081 is internal only.** It serves SSH authorized keys within the container and is never exposed. All requests require `X-Internal-Secret` (HMAC-SHA256).
-- **TOTP is mandatory.** Every user must enroll in 2FA before accessing any page — including during the setup wizard.
+- **TOTP is mandatory.** Every user must enroll in 2FA before accessing any protected page. The setup wizard itself is unauthenticated, but the TOTP enrollment step (`/setup/totp`) is fully locked down once any enrolled admin exists — there are no backdoors into the wizard after first-run.
 - **Audit log is append-only.** No API or UI can delete or modify audit entries.
 - **Authentication checks are hardened.** Constant-time password verification, constant-time TOTP comparison, no user enumeration via timing or error messages.
 - **File permissions enforced on every boot.** `/data` (700), `.secret_key` (600), `callis.db` (600), SSH host key (600).

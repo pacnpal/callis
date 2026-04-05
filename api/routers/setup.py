@@ -44,6 +44,16 @@ async def _is_setup_needed() -> bool:
         return result.scalar() == 0
 
 
+async def _is_fully_setup() -> bool:
+    """Return True if at least one user has completed TOTP enrollment."""
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(func.count()).select_from(User).where(User.totp_enrolled == True)  # noqa: E712
+        )
+        return result.scalar() > 0
+
+
 @router.get("/setup")
 async def setup_page(request: Request):
     if not await _is_setup_needed():
@@ -155,6 +165,9 @@ async def setup_submit(
 
 @router.get("/setup/totp")
 async def setup_totp_page(request: Request, user: User = Depends(get_current_user)):
+    if await _is_fully_setup():
+        raise HTTPException(status_code=404)
+
     if user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
 
@@ -182,6 +195,9 @@ async def setup_totp_verify(
     totp_code: str = Form(...),
     user: User = Depends(get_current_user),
 ):
+    if await _is_fully_setup():
+        raise HTTPException(status_code=404)
+
     if user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
 
