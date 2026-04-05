@@ -56,13 +56,18 @@ volumes:
   callis_hostkeys:
 ```
 
-Or with a single `docker run`:
+Or with `docker run`:
 
 ```bash
-docker run -d --restart unless-stopped \
-  -p 8080:8080 -p 2222:22 \
+docker run -d \
+  --name callis \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -p 2222:22 \
   -v callis_db:/data \
+  -v callis_audit:/audit \
   -v callis_hostkeys:/etc/ssh/host_keys \
+  -v callis_sshd_logs:/var/log/callis \
   ghcr.io/pacnpal/callis:latest
 ```
 
