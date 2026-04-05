@@ -2,7 +2,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-TOTP_EXEMPT_PATHS = {"/totp/setup", "/totp/verify", "/login", "/logout", "/health"}
+TOTP_EXEMPT_PATHS = {"/totp/setup", "/totp/verify", "/login", "/logout", "/health", "/setup/totp"}
 TOTP_EXEMPT_PREFIXES = ("/static/",)
 
 

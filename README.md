@@ -22,6 +22,7 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 - Fail2ban sidecar for SSH brute force protection
 - Rate limiting on web UI login
 - Works on a LAN or behind any reverse proxy
+- First-run setup wizard — no `.env` configuration required
 - Single `docker compose up` deployment
 
 ---
@@ -36,47 +37,13 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 
 ## Quick Start
 
-### Option A — Docker Hub / GHCR (recommended)
-
-```bash
-docker pull ghcr.io/pacnpal/callis:latest
-# or: docker pull pacnpal/callis:latest
-# or pin a version: docker pull ghcr.io/pacnpal/callis:0.1.0
-```
-
 ```bash
 git clone https://github.com/pacnpal/callis.git
 cd callis
-cp .env.example .env
-```
-
-### Option B — Build from source
-
-```bash
-git clone https://github.com/pacnpal/callis.git
-cd callis
-cp .env.example .env
-docker compose up -d --build
-```
-
-Edit `.env` — set these two required values:
-
-```bash
-# Generate a secret key
-openssl rand -hex 32
-
-# Set in .env:
-SECRET_KEY=<paste-your-key-here>
-ADMIN_PASSWORD=<choose-a-strong-password>
-```
-
-Start Callis:
-
-```bash
 docker compose up -d
 ```
 
-Or use this minimal `docker-compose.yml`:
+Or use a pre-built image:
 
 ```yaml
 services:
@@ -89,12 +56,15 @@ services:
     volumes:
       - callis_db:/data
       - callis_hostkeys:/etc/ssh/host_keys
-    env_file: .env
 
 volumes:
   callis_db:
   callis_hostkeys:
 ```
+
+No `.env` file needed — the setup wizard handles first-run configuration. `SECRET_KEY` is auto-generated and persisted to the data volume.
+
+> **Requires Docker Compose v2.24.0+** for the optional `.env` file syntax used in `docker-compose.yml`. Run `docker compose version` to check.
 
 - **Web UI:** `http://<your-server-ip>:8080`
 - **SSH jump port:** `2222`
@@ -103,11 +73,15 @@ volumes:
 
 ## First-Run Walkthrough
 
-1. Open the web UI at `http://<server>:8080`
-2. Log in with your admin credentials (username: `admin`, password: from `.env`)
-3. You'll be prompted to **set up TOTP 2FA** — scan the QR code with your authenticator app
-4. Enter the 6-digit code to complete enrollment
-5. You're now on the dashboard
+> **Security notice:** The `/setup` page is publicly accessible until an admin account is created.
+> Complete setup immediately after starting the container for the first time.
+> The container logs will show a `FIRST RUN` warning until an admin account is created.
+
+1. Start Callis: `docker compose up -d`
+2. Open the web UI at `http://<server>:8080` — the **setup wizard** appears automatically
+3. **Create your admin account** — choose a username and strong password
+4. **Set up TOTP 2FA** — scan the QR code with your authenticator app, enter the 6-digit code
+5. You're automatically logged in to the dashboard
 
 **Next steps:**
 
@@ -126,12 +100,10 @@ volumes:
 The default. Good for home labs and internal networks.
 
 ```bash
-cp .env.example .env
-# Set SECRET_KEY and ADMIN_PASSWORD
 docker compose up -d
 ```
 
-Access via `http://<server-ip>:8080` (web) and `<server-ip>:2222` (SSH).
+Open `http://<server-ip>:8080` — the setup wizard guides you through admin account creation and TOTP enrollment. SSH available on `<server-ip>:2222` after setup.
 
 ### Mode B — Behind a Reverse Proxy (Caddy, Nginx, Traefik, etc.)
 
@@ -276,9 +248,7 @@ ssh my-internal-server
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SECRET_KEY` | Yes | — | 32+ byte hex string for JWT signing and TOTP encryption |
-| `ADMIN_PASSWORD` | Yes | — | Initial admin password (first startup only) |
-| `ADMIN_USERNAME` | No | `admin` | Initial admin username |
+| `SECRET_KEY` | No | Auto-generated | 32+ byte hex string for JWT signing and TOTP encryption. Auto-generated and persisted to `/data/.secret_key` if not set. |
 | `DATABASE_URL` | No | `sqlite+aiosqlite:////data/callis.db` | Database URL (PostgreSQL supported) |
 | `SSH_PORT` | No | `2222` | External SSH port |
 | `WEB_PORT` | No | `8080` | External web UI port |
@@ -344,12 +314,14 @@ Database tables are created automatically on startup. Back up your database befo
 
 ## Security Notes
 
+- **SECRET_KEY is auto-generated** on first start and persisted to `/data/.secret_key` with `chmod 600`. In Docker, `entrypoint.sh` uses `openssl rand -hex 32`; when running the API directly, `api/core.py` uses `secrets.token_hex(32)`. The `/data` volume is hardened to `chmod 700` on every boot.
 - **Private keys are never stored.** Callis accepts uploaded public keys only and does not collect, generate, or retain private keys.
 - **Public key text is write-only.** After upload, only the fingerprint, label, type, and dates are shown.
-- **Port 8081 is internal only.** It serves SSH authorized keys to the sshd container via the Docker network and is never exposed to the host.
-- **TOTP is mandatory.** Every user must enroll in 2FA before accessing any page.
+- **Port 8081 is internal only.** It serves SSH authorized keys within the container and is never exposed. All requests require `X-Internal-Secret` (HMAC-SHA256).
+- **TOTP is mandatory.** Every user must enroll in 2FA before accessing any protected page. The setup wizard itself is unauthenticated, but the TOTP enrollment step (`/setup/totp`) is fully locked down once any enrolled admin exists — there are no backdoors into the wizard after first-run.
 - **Audit log is append-only.** No API or UI can delete or modify audit entries.
-- **Authentication checks are hardened.** Login applies secure password verification and enforces TOTP-based 2FA.
+- **Authentication checks are hardened.** Constant-time password verification, constant-time TOTP comparison, no user enumeration via timing or error messages.
+- **File permissions enforced on every boot.** `/data` (700), `.secret_key` (600), `callis.db` (600), SSH host key (600).
 - **sshd is hardened.** Ed25519 and RSA (4096+ bit) keys accepted, no passwords, no root login, no interactive shell (ForceCommand allows only `resolve` and `list`), modern cipher suite.
 
 ---

@@ -86,9 +86,11 @@ api/
 ├── middleware/
 │   ├── security_headers.py  # CSP, HSTS, X-Frame-Options, etc.
 │   ├── session.py           # JWT cookie validation
+│   ├── setup_guard.py       # Redirects to /setup when DB has no users
 │   └── totp_guard.py        # Enforces TOTP enrollment before access
 ├── routers/
 │   ├── auth.py              # /login, /logout, /totp/setup, /totp/verify
+│   ├── setup.py             # /setup — first-run setup wizard
 │   ├── users.py             # /users — CRUD, key management
 │   ├── hosts.py             # /hosts — jump target management
 │   ├── audit.py             # /audit — log viewer
@@ -99,7 +101,9 @@ api/
 └── templates/
     ├── base.html            # Nav, CDN links, flash messages
     ├── login.html
-    ├── totp_setup.html      # Mandatory TOTP enrollment
+    ├── setup.html           # First-run setup wizard (admin account)
+    ├── setup_totp.html      # First-run setup wizard (TOTP enrollment)
+    ├── totp_setup.html      # Mandatory TOTP enrollment (existing users)
     ├── dashboard.html
     ├── users.html
     ├── user_detail.html
@@ -181,6 +185,17 @@ AuditLog
 
 ## 4. Request Flow
 
+### First-run setup (no users in DB)
+```
+Browser → api:8080
+  → SecurityHeadersMiddleware
+  → SessionMiddleware (no cookie → user = None)
+  → SetupGuardMiddleware (zero users → redirect /setup)
+  → GET /setup → setup wizard form
+  → POST /setup → create admin + session cookie → redirect /setup/totp
+  → POST /setup/totp → verify TOTP → mark enrolled → redirect /dashboard
+```
+
 ### Web UI request (authenticated page)
 ```
 Browser
@@ -188,6 +203,7 @@ Browser
   → api:8080
   → SecurityHeadersMiddleware (attach headers)
   → SessionMiddleware (validate JWT cookie → attach user to request.state)
+  → SetupGuardMiddleware (users exist → pass through, cached)
   → TOTPGuardMiddleware (if user.totp_enrolled is False → redirect /totp/setup)
   → RateLimitMiddleware (slowapi, IP-keyed)
   → Route handler
@@ -282,9 +298,11 @@ callis/
 │   ├── middleware/
 │   │   ├── security_headers.py
 │   │   ├── session.py
+│   │   ├── setup_guard.py
 │   │   └── totp_guard.py
 │   ├── routers/
 │   │   ├── auth.py
+│   │   ├── setup.py
 │   │   ├── users.py
 │   │   ├── hosts.py
 │   │   ├── audit.py
@@ -295,6 +313,8 @@ callis/
 │   └── templates/
 │       ├── base.html
 │       ├── login.html
+│       ├── setup.html
+│       ├── setup_totp.html
 │       ├── totp_setup.html
 │       ├── dashboard.html
 │       ├── users.html

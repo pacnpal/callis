@@ -13,11 +13,12 @@
 ```bash
 git clone https://github.com/pacnpal/callis.git
 cd callis
-cp .env.example .env
 docker compose up -d
 ```
 
-The API container runs with `--reload` in development mode (set `DEV_MODE=true` in `.env`). Template changes and Python file changes reload automatically.
+On first start, the setup wizard at `http://localhost:8080` guides you through admin account creation and TOTP enrollment. No `.env` file is required — `SECRET_KEY` is auto-generated.
+
+For development mode (verbose SQL logging), create `.env` with `DEV_MODE=true`.
 
 ### Running the API outside Docker (for faster iteration)
 

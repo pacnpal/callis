@@ -31,7 +31,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-USER-04** — Users MUST be assigned one of three roles: `admin`, `operator`, or `readonly`.
 - **FR-USER-05** — Roles MUST be enforced at the API level as a dependency, not as inline checks scattered through route handlers.
 - **FR-USER-06** — A user MUST NOT be able to elevate their own role.
-- **FR-USER-07** — The first user created (during initial setup) MUST be assigned the `admin` role automatically.
+- **FR-USER-07** — The first user MUST be created via a web-based setup wizard on first load. The wizard MUST require username, password, and TOTP enrollment. The user MUST be assigned the `admin` role automatically.
 
 ### 2.3 SSH Key Management
 
@@ -88,7 +88,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 
 ### 2.7 Deployment
 
-- **FR-DEPLOY-01** — The full stack MUST be deployable with a single `docker compose up -d` command after copying `.env.example` to `.env` and setting required values.
+- **FR-DEPLOY-01** — The full stack MUST be deployable with a single `docker compose up -d` command. No `.env` file is required for basic operation — `SECRET_KEY` is auto-generated and the admin account is created via the web-based setup wizard on first load.
 - **FR-DEPLOY-02** — The stack MUST work with no domain name on a LAN (accessing the UI via IP and port).
 - **FR-DEPLOY-03** — The stack MUST work behind any standard reverse proxy. Callis MUST NOT assume a specific reverse proxy is present.
 - **FR-DEPLOY-04** — The stack MUST work behind any standard reverse proxy (Caddy, Nginx, Traefik). TLS termination is the user's responsibility.

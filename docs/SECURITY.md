@@ -12,17 +12,25 @@ These are non-negotiable rules enforced in code, not guidelines.
 - Admins can view key metadata for any user. They cannot see full public key text for another user's key.
 - The `AuthorizedKeysCommand` endpoint returns raw public key text to `sshd` — but this endpoint is network-isolated (internal Docker network only) and is never accessible through the public web UI port.
 
-### 1.2 Authentication
+### 1.2 First-Run Setup
 
-- Every route except `/login` and `/health` requires a valid session. This is enforced in middleware, not in individual route handlers.
+- On first start with an empty database, all web requests redirect to `/setup` (enforced by `SetupGuardMiddleware`).
+- The setup wizard creates the initial admin account and requires TOTP enrollment before granting access.
+- Once any user exists in the database, the account-creation step (`GET /setup` and `POST /setup`) returns 404 and cannot be re-triggered. The TOTP enrollment step (`/setup/totp`) remains accessible only to the session established during that wizard run, until enrollment is completed.
+- `SECRET_KEY` is auto-generated if not provided in `.env` and persisted to `/data/.secret_key` (`entrypoint.sh` uses `openssl rand -hex 32`; the API fallback uses `secrets.token_hex(32)`).
+- File permissions are enforced on **every boot**: `/data` (700), `.secret_key` (600), `callis.db` (600), SSH host key (600).
+
+### 1.3 Authentication
+
+- Protected routes require a valid session via shared authentication dependencies (`get_current_user`, `require_totp_complete`, `require_role`). Public routes (`/login`, `/setup`, `/health`) are intentionally left accessible without those dependencies. Session state is loaded into `request.state.user` by `SessionMiddleware`, but access is gated at the route level.
 - Sessions are JWTs stored in `httpOnly`, `Secure`, `SameSite=Strict` cookies.
 - JWTs are never returned in response bodies, never stored in localStorage, never embedded in URLs.
-- TOTP is mandatory. No user may access any page other than `/totp/setup` until TOTP is enrolled. This is enforced in `TOTPGuardMiddleware`.
+- TOTP is mandatory. No user may access protected pages until TOTP enrollment is complete. This is enforced via `require_totp_complete` route dependencies and by `TOTPGuardMiddleware`, which redirects authenticated users without enrolled TOTP to `/totp/setup`.
 - After TOTP setup, every login requires password AND TOTP code. There is no "remember this device."
 - Failed login attempts (wrong password or wrong TOTP) return the same error message and take the same time to respond (constant-time comparison). This prevents both user enumeration and timing attacks.
 - Sessions expire after idle timeout (default: 30 minutes) and have an absolute maximum lifetime (default: 8 hours).
 
-### 1.3 Authorization
+### 1.4 Authorization
 
 - Role hierarchy: `admin` > `operator` > `readonly`.
 - Role checks use FastAPI dependencies (`require_role("admin")`), applied at the route level — never scattered inline.
@@ -32,13 +40,13 @@ These are non-negotiable rules enforced in code, not guidelines.
 - `admin` users have full access.
 - A user can never view another user's key text, only fingerprints and metadata.
 
-### 1.4 Audit
+### 1.5 Audit
 
 - Audit log entries are append-only. No API route or UI action can delete or modify them.
 - All auth events, key events, and admin actions are logged.
 - Logs include: timestamp, actor, action, target, source IP, and action-specific metadata.
 
-### 1.5 Transport and Headers
+### 1.6 Transport and Headers
 
 Every HTTP response carries:
 

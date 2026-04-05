@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Setup - Callis{% endblock %}
+{% block content %}
+<article class="setup-card">
+  <header>
+    <h2>Welcome to Callis</h2>
+    <p>Create your admin account to get started. This wizard only runs once.</p>
+    <p><strong>Important:</strong> Complete this setup immediately after starting the container. The setup page is publicly accessible until an admin account is created.</p>
+  </header>
+
+  <form method="post" action="/setup">
+    <label for="username">Admin Username</label>
+    <input type="text" id="username" name="username" required autocomplete="username" autofocus
+           value="{{ username | default('admin') }}"
+           pattern="[a-z][a-z0-9_-]{0,31}" title="Lowercase letters, numbers, hyphens, underscores. Must start with a letter.">
+
+    <label for="display_name">Display Name</label>
+    <input type="text" id="display_name" name="display_name"
+           value="{{ display_name | default('Administrator') }}">
+
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" required autocomplete="new-password"
+           minlength="8" placeholder="Minimum 8 characters">
+
+    <label for="password_confirm">Confirm Password</label>
+    <input type="password" id="password_confirm" name="password_confirm" required autocomplete="new-password"
+           minlength="8">
+
+    <button type="submit">Create Admin Account</button>
+  </form>
+</article>
+{% endblock %}
