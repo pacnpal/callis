@@ -3,6 +3,8 @@
 {% block content %}
 <h2>Audit Log</h2>
 
+<p class="text-muted">Security events and administrative actions — logins, key changes, host modifications, and user management. Use the filters below to narrow results.</p>
+
 <form hx-get="/audit" hx-target="#audit-table-body" hx-swap="innerHTML" hx-push-url="true"
       class="filter-form">
   <div class="grid">

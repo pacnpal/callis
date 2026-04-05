@@ -1,5 +1,6 @@
 <tr id="host-row-{{ host.id }}">
   <td>{{ host.label }}</td>
+  <td class="alias-col">{{ host.label | slugify }}</td>
   <td><code>{{ host.hostname }}</code></td>
   <td>{{ host.port }}</td>
   <td>
@@ -36,7 +37,7 @@
   <td>
     <details>
       <summary class="text-small">Show</summary>
-      <pre class="ssh-config">Host {{ host.label | slugify }}-{{ host.id[:6] }}
+      <pre class="ssh-config">Host {{ host.label | slugify }}
     HostName {{ host.hostname }}
     Port {{ host.port }}
     ProxyJump {{ user.username }}@{{ ssh_host }}:{{ settings.SSH_PORT }}</pre>

@@ -46,12 +46,16 @@
   <div class="grid">
     <div>
       <label for="label">Key Label</label>
-      <input type="text" id="label" name="label" required placeholder="e.g. Work Laptop">
+      <input type="text" id="label" name="label" required placeholder="e.g. Work Laptop"
+             aria-describedby="key_label_help">
+      <p id="key_label_help" class="helper-text">A name to identify this key (e.g. the device it belongs to).</p>
     </div>
   </div>
   <label for="public_key">Public Key</label>
   <textarea id="public_key" name="public_key" required rows="3"
-            placeholder="ssh-ed25519 AAAA... comment"></textarea>
+            placeholder="ssh-ed25519 &lt;public-key&gt; comment"
+            aria-describedby="public_key_help"></textarea>
+  <p id="public_key_help" class="helper-text">Paste the contents of your <code>.pub</code> file. Accepted types: <strong>Ed25519</strong> (recommended) or <strong>RSA 4096-bit+</strong>. Generate one with: <code>ssh-keygen -t ed25519</code></p>
   <button type="submit">Upload Key</button>
 </form>
 
