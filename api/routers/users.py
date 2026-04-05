@@ -1,4 +1,4 @@
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -351,7 +351,7 @@ async def upload_key(
             "partials/key_list.html",
             context={"keys": keys, "target_user_id": user_id, "user": user},
         )
-    return RedirectResponse(url=f"/users/{quote(user_id, safe='')}", status_code=303)
+    return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)
 
 
 @router.post("/users/{user_id}/keys/{key_id}/revoke")
@@ -390,4 +390,4 @@ async def revoke_key(
             "partials/key_list.html",
             context={"keys": keys, "target_user_id": user_id, "user": user},
         )
-    return RedirectResponse(url=f"/users/{quote(user_id, safe='')}", status_code=303)
+    return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)
