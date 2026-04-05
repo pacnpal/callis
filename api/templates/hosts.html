@@ -8,7 +8,7 @@
   {% endif %}
 </div>
 
-<p class="text-muted">Hosts are internal servers you connect to through Callis. Each host gets an <strong>alias</strong> — a short name auto-generated from its label — that you use in your SSH config and terminal.</p>
+<p class="text-muted">Hosts are internal servers you connect to through Callis. Each host gets an <strong>alias</strong> — a short name auto-generated from its label — that you use in your SSH config and with <code>ssh callis resolve</code>.</p>
 
 {% if user.role.value == "admin" %}
 <dialog id="add-host-dialog">
@@ -20,7 +20,7 @@
     <form method="post" action="/hosts">
       <label for="label">Label</label>
       <input type="text" id="label" name="label" required placeholder="e.g. Production Web Server">
-      <p class="helper-text">A friendly name for this host. It will be converted into an SSH alias automatically (e.g. "Production Web Server" → <code>production-web-server</code>).</p>
+      <p class="helper-text">A friendly name for this host. It will be converted into an SSH alias automatically (e.g. "Production Web Server" → <code>production-web-server</code>). This alias is used in your SSH config and with <code>ssh callis resolve</code>.</p>
 
       <label for="hostname">Hostname / IP</label>
       <input type="text" id="hostname" name="hostname" required placeholder="192.168.1.50 or server.internal">
@@ -58,7 +58,7 @@
       {% for host in hosts %}
       <tr id="host-row-{{ host.id }}">
         <td>{{ host.label }}</td>
-        <td class="alias-col">{{ host.label | slugify }}-{{ host.id[:6] }}</td>
+        <td class="alias-col">{{ host.label | slugify }}</td>
         <td><code>{{ host.hostname }}</code></td>
         <td>{{ host.port }}</td>
         <td>
@@ -95,7 +95,7 @@
         <td>
           <details>
             <summary class="text-small">Show</summary>
-            <pre class="ssh-config">Host {{ host.label | slugify }}-{{ host.id[:6] }}
+            <pre class="ssh-config">Host {{ host.label | slugify }}
     HostName {{ host.hostname }}
     Port {{ host.port }}
     ProxyJump {{ user.username }}@{{ ssh_host }}:{{ settings.SSH_PORT }}</pre>

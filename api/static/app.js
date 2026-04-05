@@ -14,12 +14,16 @@
   };
 
   function current() {
-    var v = localStorage.getItem("callis-theme");
-    return MODES.indexOf(v) !== -1 ? v : "system";
+    try {
+      var v = localStorage.getItem("callis-theme");
+      return MODES.indexOf(v) !== -1 ? v : "system";
+    } catch (_) {
+      return "system";
+    }
   }
 
   function apply(mode) {
-    localStorage.setItem("callis-theme", mode);
+    try { localStorage.setItem("callis-theme", mode); } catch (_) {}
     if (mode === "light" || mode === "dark") {
       document.documentElement.setAttribute("data-theme", mode);
     } else {
