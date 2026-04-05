@@ -22,10 +22,10 @@ These are non-negotiable rules enforced in code, not guidelines.
 
 ### 1.3 Authentication
 
-- Every route except `/login`, `/setup*`, and `/health` requires a valid session. This is enforced in middleware, not in individual route handlers.
+- Protected routes require a valid session via shared authentication dependencies (`get_current_user`, `require_totp_complete`, `require_role`). Public routes (`/login`, `/setup`, `/health`) are intentionally left accessible without those dependencies. Session state is loaded into `request.state.user` by `SessionMiddleware`, but access is gated at the route level.
 - Sessions are JWTs stored in `httpOnly`, `Secure`, `SameSite=Strict` cookies.
 - JWTs are never returned in response bodies, never stored in localStorage, never embedded in URLs.
-- TOTP is mandatory. No user may access any page other than `/totp/setup` until TOTP is enrolled. This is enforced in `TOTPGuardMiddleware`.
+- TOTP is mandatory. No user may access protected pages until TOTP enrollment is complete. This is enforced via `require_totp_complete` route dependencies and by `TOTPGuardMiddleware`, which redirects authenticated users without enrolled TOTP to `/totp/setup`.
 - After TOTP setup, every login requires password AND TOTP code. There is no "remember this device."
 - Failed login attempts (wrong password or wrong TOTP) return the same error message and take the same time to respond (constant-time comparison). This prevents both user enumeration and timing attacks.
 - Sessions expire after idle timeout (default: 30 minutes) and have an absolute maximum lifetime (default: 8 hours).

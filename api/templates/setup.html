@@ -8,6 +8,7 @@
   </header>
 
   <form method="post" action="/setup">
+    <input type="hidden" name="setup_token" value="{{ setup_token }}">
     <label for="username">Admin Username</label>
     <input type="text" id="username" name="username" required autocomplete="username" autofocus
            value="{{ username | default('admin') }}"

@@ -12,11 +12,31 @@ chmod 700 /data 2>/dev/null || true
 # Resolve SECRET_KEY: env var → persisted file → generate and persist for first start
 SECRET_KEY_FILE="/data/.secret_key"
 if [ -n "${SECRET_KEY:-}" ]; then
-    # Env var is authoritative — always persist it so the API and sshd stay in sync
-    (
-        umask 077
-        printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
-    )
+    if [ -f "$SECRET_KEY_FILE" ]; then
+        chmod 600 "$SECRET_KEY_FILE"
+        PERSISTED_KEY=$(cat "$SECRET_KEY_FILE" 2>/dev/null)
+        if [ -z "${PERSISTED_KEY:-}" ]; then
+            echo "FATAL: $SECRET_KEY_FILE exists but is empty. Remove it and restart." >&2
+            exit 1
+        fi
+        if [ "$SECRET_KEY" != "$PERSISTED_KEY" ]; then
+            if [ "${CALLIS_ROTATE_SECRET_KEY:-false}" != "true" ]; then
+                echo "FATAL: SECRET_KEY env var does not match the persisted key in $SECRET_KEY_FILE." >&2
+                echo "Refusing to overwrite. Set CALLIS_ROTATE_SECRET_KEY=true to rotate the key." >&2
+                echo "WARNING: Rotating the key will invalidate all active sessions and stored TOTP secrets." >&2
+                exit 1
+            fi
+            (
+                umask 077
+                printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
+            )
+        fi
+    else
+        (
+            umask 077
+            printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
+        )
+    fi
 elif [ -f "$SECRET_KEY_FILE" ]; then
     chmod 600 "$SECRET_KEY_FILE"
     export SECRET_KEY=$(cat "$SECRET_KEY_FILE")

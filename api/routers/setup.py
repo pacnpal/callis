@@ -1,5 +1,7 @@
+import asyncio
 import base64
 import io
+import secrets
 
 import qrcode
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -12,8 +14,10 @@ from core import (
     RESERVED_USERNAMES,
     USERNAME_RE,
     create_jwt,
+    delete_setup_token,
     encrypt_totp_secret,
     generate_totp_secret,
+    get_or_create_setup_token,
     get_session_factory,
     get_settings,
     get_totp_uri,
@@ -31,6 +35,9 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 register_template_filters(templates)
 
+# Prevent concurrent first-run POSTs from creating multiple admin accounts
+_setup_lock = asyncio.Lock()
+
 
 async def _is_setup_needed() -> bool:
     """Return True if the database has no users."""
@@ -44,7 +51,8 @@ async def _is_setup_needed() -> bool:
 async def setup_page(request: Request):
     if not await _is_setup_needed():
         raise HTTPException(status_code=404)
-    return templates.TemplateResponse("setup.html", {"request": request})
+    setup_token = get_or_create_setup_token()
+    return templates.TemplateResponse("setup.html", {"request": request, "setup_token": setup_token})
 
 
 @router.post("/setup")
@@ -55,9 +63,15 @@ async def setup_submit(
     password: str = Form(...),
     password_confirm: str = Form(...),
     display_name: str = Form("Administrator"),
+    setup_token: str = Form(...),
 ):
     if not await _is_setup_needed():
         raise HTTPException(status_code=404)
+
+    # Verify the one-time setup token to prevent drive-by/CSRF submissions
+    expected_token = get_or_create_setup_token()
+    if not secrets.compare_digest(setup_token, expected_token):
+        raise HTTPException(status_code=403, detail="Invalid setup token.")
 
     username = username.lower().strip()
     display_name = display_name.strip() or "Administrator"
@@ -75,54 +89,67 @@ async def setup_submit(
     if errors:
         return templates.TemplateResponse(
             "setup.html",
-            {"request": request, "error": " ".join(errors), "username": username, "display_name": display_name},
+            {"request": request, "error": " ".join(errors), "username": username, "display_name": display_name, "setup_token": setup_token},
             status_code=400,
         )
 
-    # Create admin user
-    factory = get_session_factory()
-    async with factory() as db:
-        # Check for existing username to avoid an IntegrityError on commit
-        existing = await db.execute(select(User).where(User.username == username))
-        if existing.scalar_one_or_none():
-            return templates.TemplateResponse(
-                "setup.html",
-                {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
-                status_code=400,
-            )
+    # Acquire lock and re-verify no user exists to prevent concurrent setup races
+    async with _setup_lock:
+        if not await _is_setup_needed():
+            raise HTTPException(status_code=409, detail="Setup has already been completed.")
 
-        admin = User(
-            username=username,
-            display_name=display_name,
-            hashed_password=hash_password(password),
-            role=UserRole.admin,
-            is_active=True,
-        )
-        # Generate and encrypt TOTP secret now (verified in next step)
-        totp_secret = generate_totp_secret()
-        admin.totp_secret = encrypt_totp_secret(totp_secret)
-        db.add(admin)
-        # Flush to assign admin.id before writing the audit log
-        await db.flush()
+        # Create admin user
+        factory = get_session_factory()
+        async with factory() as db:
+            # Check for existing username to avoid an IntegrityError on commit
+            existing = await db.execute(select(User).where(User.username == username))
+            if existing.scalar_one_or_none():
+                return templates.TemplateResponse(
+                    "setup.html",
+                    {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name, "setup_token": setup_token},
+                    status_code=400,
+                )
 
-        await write_audit_log(
-            db,
-            actor_id=admin.id,
-            action=AuditAction.USER_CREATED,
-            target_type="user",
-            target_id=admin.id,
-            source_ip=request.client.host if request.client else None,
-            detail={"username": username, "role": "admin", "source": "setup_wizard"},
-        )
-        try:
-            await db.commit()
-        except IntegrityError:
-            await db.rollback()
-            return templates.TemplateResponse(
-                "setup.html",
-                {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
-                status_code=400,
+            # Re-check count inside the transaction before inserting to guard against race
+            recount = await db.execute(select(func.count()).select_from(User))
+            if recount.scalar() > 0:
+                raise HTTPException(status_code=409, detail="Setup has already been completed.")
+
+            admin = User(
+                username=username,
+                display_name=display_name,
+                hashed_password=hash_password(password),
+                role=UserRole.admin,
+                is_active=True,
             )
+            # Generate and encrypt TOTP secret now (verified in next step)
+            totp_secret = generate_totp_secret()
+            admin.totp_secret = encrypt_totp_secret(totp_secret)
+            db.add(admin)
+            # Flush to assign admin.id before writing the audit log
+            await db.flush()
+
+            await write_audit_log(
+                db,
+                actor_id=admin.id,
+                action=AuditAction.USER_CREATED,
+                target_type="user",
+                target_id=admin.id,
+                source_ip=request.client.host if request.client else None,
+                detail={"username": username, "role": "admin", "source": "setup_wizard"},
+            )
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                return templates.TemplateResponse(
+                    "setup.html",
+                    {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name, "setup_token": setup_token},
+                    status_code=400,
+                )
+
+        # Token has served its purpose — delete it now that a user exists
+        delete_setup_token()
 
     # Set session cookie so TOTP step is authenticated
     token = create_jwt(admin.id)
