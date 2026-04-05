@@ -44,10 +44,39 @@ def get_app_version() -> str:
 # Settings
 # ---------------------------------------------------------------------------
 
+_SECRET_KEY_FILE = "/data/.secret_key"
+
+
+def _resolve_secret_key() -> str:
+    """Resolve SECRET_KEY: env var → persisted file → auto-generate."""
+    import os
+
+    # 1. Env var takes precedence
+    key = os.environ.get("SECRET_KEY", "").strip()
+    if key:
+        return key
+
+    # 2. Check persisted file (from previous run or setup wizard)
+    try:
+        with open(_SECRET_KEY_FILE) as f:
+            key = f.read().strip()
+            if key:
+                return key
+    except FileNotFoundError:
+        pass
+
+    # 3. Auto-generate and persist
+    key = secrets.token_hex(32)
+    os.makedirs(os.path.dirname(_SECRET_KEY_FILE), exist_ok=True)
+    with open(_SECRET_KEY_FILE, "w") as f:
+        f.write(key)
+    os.chmod(_SECRET_KEY_FILE, 0o600)
+    logger.info("Auto-generated SECRET_KEY and saved to %s", _SECRET_KEY_FILE)
+    return key
+
+
 class Settings(BaseSettings):
-    SECRET_KEY: str
-    ADMIN_PASSWORD: str
-    ADMIN_USERNAME: str = "admin"
+    SECRET_KEY: str = ""
     DATABASE_URL: str = "sqlite+aiosqlite:////data/callis.db"
     SESSION_IDLE_TIMEOUT: int = 1800  # 30 minutes
     SESSION_MAX_LIFETIME: int = 28800  # 8 hours
@@ -64,7 +93,10 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if not settings.SECRET_KEY:
+        settings.SECRET_KEY = _resolve_secret_key()
+    return settings
 
 
 # ---------------------------------------------------------------------------
