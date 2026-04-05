@@ -20,6 +20,21 @@ On first start, the setup wizard at `http://localhost:8080` guides you through a
 
 For development mode (verbose SQL logging), create `.env` with `DEV_MODE=true`.
 
+### Watch mode (recommended for Docker-based dev)
+
+Watch mode automatically syncs your local file changes into the running container, so you don't need to rebuild after every edit.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -w
+```
+
+How it works:
+- **File sync + restart**: Changes to files in `api/` are synced into the container and the service restarts automatically.
+- **Rebuild trigger**: Changes to `api/pyproject.toml` (new dependencies) trigger a full container rebuild.
+- Files like `__pycache__/`, `*.pyc`, and `uv.lock` are excluded from sync.
+
+This gives you a tight edit-save-refresh loop without leaving Docker. The full stack (API + sshd) runs exactly as it would in production.
+
 ### Running the API outside Docker (for faster iteration)
 
 ```bash
