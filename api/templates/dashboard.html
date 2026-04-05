@@ -18,15 +18,44 @@
   </article>
 </div>
 
+{% if user_key_count == 0 or active_hosts == 0 %}
+<article class="getting-started">
+  <header><strong>Getting Started</strong></header>
+  <p>Complete these steps to start using Callis as your SSH bastion:</p>
+  <ol>
+    {% if user_key_count == 0 %}
+    <li><a href="/users/{{ user.id }}">Upload an SSH public key</a> to your profile. Callis accepts Ed25519 and RSA (4096-bit+) keys.</li>
+    {% else %}
+    <li>✓ SSH key uploaded</li>
+    {% endif %}
+    {% if user.role.value == "admin" %}
+      {% if active_hosts == 0 %}
+      <li><a href="/hosts">Add a host</a> — register an internal server that users will connect to through the bastion.</li>
+      {% else %}
+      <li>✓ Hosts configured</li>
+      {% endif %}
+    {% else %}
+      {% if active_hosts == 0 %}
+      <li>Ask an administrator to add hosts and assign you to them.</li>
+      {% else %}
+      <li>✓ Hosts available</li>
+      {% endif %}
+    {% endif %}
+    <li>Copy the SSH config below into <code>~/.ssh/config</code>, then connect with <code>ssh &lt;alias&gt;</code>.</li>
+  </ol>
+</article>
+{% endif %}
+
 <section>
   <h3>SSH Connection</h3>
-  <p>Add this to your <code>~/.ssh/config</code> to use Callis as a jump host:</p>
+  <p>Add this to your <code>~/.ssh/config</code> to use Callis as a jump host. On Windows, this file is at <code>C:\Users\&lt;you&gt;\.ssh\config</code>.</p>
   <pre class="ssh-config">Host callis
     HostName {{ ssh_host }}
     Port {{ ssh_port }}
     User {{ user.username }}
     IdentityFile ~/.ssh/your_ed25519_key</pre>
-  <p class="text-small text-muted">Then connect to internal hosts with: <code>ssh -J callis user@internal-host</code></p>
+  <p class="text-small text-muted">Replace <code>~/.ssh/your_ed25519_key</code> with the path to your actual private key. Then connect to internal hosts with: <code>ssh -J callis user@internal-host</code></p>
+  <p class="text-small text-muted">View your full SSH config with host aliases on your <a href="/users/{{ user.id }}">profile page</a>.</p>
 </section>
 
 {% if recent_audit %}

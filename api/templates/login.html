@@ -4,6 +4,7 @@
 <article class="auth-card">
   <header>
     <h2>Sign In</h2>
+    <p class="text-muted">Callis &mdash; SSH bastion host</p>
   </header>
   <form method="post" action="/login">
     <label for="username">Username</label>
@@ -14,7 +15,8 @@
 
     <label for="totp_code">TOTP Code</label>
     <input type="text" id="totp_code" name="totp_code" autocomplete="one-time-code"
-           placeholder="Leave blank on first login" inputmode="numeric" pattern="[0-9]{6}" maxlength="6">
+           placeholder="6-digit code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6">
+    <p class="helper-text">Enter the code from your authenticator app. Leave blank on your first login &mdash; you will set up two-factor authentication next.</p>
 
     <button type="submit">Sign In</button>
   </form>

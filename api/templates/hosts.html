@@ -8,6 +8,8 @@
   {% endif %}
 </div>
 
+<p class="text-muted">Hosts are internal servers you connect to through Callis. Each host gets an <strong>alias</strong> — a short name auto-generated from its label — that you use in your SSH config and terminal.</p>
+
 {% if user.role.value == "admin" %}
 <dialog id="add-host-dialog">
   <article>
@@ -18,15 +20,17 @@
     <form method="post" action="/hosts">
       <label for="label">Label</label>
       <input type="text" id="label" name="label" required placeholder="e.g. Production Web Server">
+      <p class="helper-text">A friendly name for this host. It will be converted into an SSH alias automatically (e.g. "Production Web Server" → <code>production-web-server</code>).</p>
 
       <label for="hostname">Hostname / IP</label>
       <input type="text" id="hostname" name="hostname" required placeholder="192.168.1.50 or server.internal">
+      <p class="helper-text">The internal address reachable from the Callis server. This is never exposed publicly.</p>
 
       <label for="port">SSH Port</label>
       <input type="number" id="port" name="port" value="22" min="1" max="65535">
 
       <label for="description">Description</label>
-      <textarea id="description" name="description" rows="2" placeholder="Optional description"></textarea>
+      <textarea id="description" name="description" rows="2" placeholder="Optional — purpose, environment, notes"></textarea>
 
       <button type="submit">Add Host</button>
     </form>
@@ -39,6 +43,7 @@
     <thead>
       <tr>
         <th>Label</th>
+        <th>Alias</th>
         <th>Hostname</th>
         <th>Port</th>
         <th>Status</th>
@@ -53,6 +58,7 @@
       {% for host in hosts %}
       <tr id="host-row-{{ host.id }}">
         <td>{{ host.label }}</td>
+        <td class="alias-col">{{ host.label | slugify }}-{{ host.id[:6] }}</td>
         <td><code>{{ host.hostname }}</code></td>
         <td>{{ host.port }}</td>
         <td>
@@ -117,6 +123,6 @@
 </figure>
 
 {% if not hosts %}
-<p class="text-muted">No hosts configured yet. {% if user.role.value == "admin" %}Add one above to get started.{% endif %}</p>
+<p class="text-muted">No hosts configured yet. {% if user.role.value == "admin" %}Click <strong>Add Host</strong> above to register your first internal server. Once added, assign users so they can connect through the bastion.{% else %}Ask an administrator to add hosts and assign you to them.{% endif %}</p>
 {% endif %}
 {% endblock %}
