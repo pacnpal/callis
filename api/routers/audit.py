@@ -75,7 +75,6 @@ async def audit_log(
     all_users = users_result.scalars().all()
 
     context = {
-        "request": request,
         "entries": entries,
         "user": user,
         "page": page,
@@ -90,6 +89,6 @@ async def audit_log(
     }
 
     if request.headers.get("HX-Request"):
-        return templates.TemplateResponse("partials/audit_rows.html", context)
+        return templates.TemplateResponse(request, "partials/audit_rows.html", context=context)
 
-    return templates.TemplateResponse("audit.html", context)
+    return templates.TemplateResponse(request, "audit.html", context=context)

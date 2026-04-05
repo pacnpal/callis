@@ -246,9 +246,6 @@ def register_template_filters(jinja_templates) -> None:
     """Register custom Jinja2 filters and globals on a Templates instance."""
     jinja_templates.env.filters["slugify"] = slugify
     jinja_templates.env.globals["app_version"] = get_app_version()
-    # Disable template caching to avoid Jinja2 >=3.1.5 unhashable cache key bug
-    # when env.globals are set. Performance impact is negligible for this app.
-    jinja_templates.env.cache = None
 
 
 # ---------------------------------------------------------------------------
