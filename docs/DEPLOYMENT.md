@@ -73,7 +73,7 @@ In OIDC mode, Callis delegates authentication entirely to the OIDC provider. TOT
 |---|---|---|---|
 | `SECRET_KEY` | No | Auto-generated | 32+ byte hex string for JWT signing and TOTP encryption. Auto-generated and persisted to `/data/.secret_key` if not set. |
 | `DATABASE_URL` | No | `sqlite+aiosqlite:////data/callis.db` | SQLAlchemy DB URL. Use `postgresql+asyncpg://...` for PostgreSQL |
-| `SSH_PORT` | No | `2222` | External SSH port |
+| `SSH_PORT` | No | `2222` | External SSH port. When using the fail2ban profile, this value is automatically passed to the fail2ban container so bans are applied to the correct port. |
 | `WEB_PORT` | No | `8080` | External web UI port |
 | `BASE_URL` | No | `http://localhost:8080` | Public base URL — used in SSH config snippets shown to users |
 | `SESSION_IDLE_TIMEOUT` | No | `1800` | Session idle timeout in seconds (default: 30 min) |
