@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import io
-import secrets
 
 import qrcode
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -14,10 +13,8 @@ from core import (
     RESERVED_USERNAMES,
     USERNAME_RE,
     create_jwt,
-    delete_setup_token,
     encrypt_totp_secret,
     generate_totp_secret,
-    get_or_create_setup_token,
     get_session_factory,
     get_settings,
     get_totp_uri,
@@ -51,8 +48,7 @@ async def _is_setup_needed() -> bool:
 async def setup_page(request: Request):
     if not await _is_setup_needed():
         raise HTTPException(status_code=404)
-    setup_token = get_or_create_setup_token()
-    return templates.TemplateResponse("setup.html", {"request": request, "setup_token": setup_token})
+    return templates.TemplateResponse("setup.html", {"request": request})
 
 
 @router.post("/setup")
@@ -63,15 +59,9 @@ async def setup_submit(
     password: str = Form(...),
     password_confirm: str = Form(...),
     display_name: str = Form("Administrator"),
-    setup_token: str = Form(...),
 ):
     if not await _is_setup_needed():
         raise HTTPException(status_code=404)
-
-    # Verify the one-time setup token to prevent drive-by/CSRF submissions
-    expected_token = get_or_create_setup_token()
-    if not secrets.compare_digest(setup_token, expected_token):
-        raise HTTPException(status_code=403, detail="Invalid setup token.")
 
     username = username.lower().strip()
     display_name = display_name.strip() or "Administrator"
@@ -89,7 +79,7 @@ async def setup_submit(
     if errors:
         return templates.TemplateResponse(
             "setup.html",
-            {"request": request, "error": " ".join(errors), "username": username, "display_name": display_name, "setup_token": setup_token},
+            {"request": request, "error": " ".join(errors), "username": username, "display_name": display_name},
             status_code=400,
         )
 
@@ -106,7 +96,7 @@ async def setup_submit(
             if existing.scalar_one_or_none():
                 return templates.TemplateResponse(
                     "setup.html",
-                    {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name, "setup_token": setup_token},
+                    {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
                     status_code=400,
                 )
 
@@ -144,12 +134,9 @@ async def setup_submit(
                 await db.rollback()
                 return templates.TemplateResponse(
                     "setup.html",
-                    {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name, "setup_token": setup_token},
+                    {"request": request, "error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
                     status_code=400,
                 )
-
-        # Token has served its purpose — delete it now that a user exists
-        delete_setup_token()
 
     # Set session cookie so TOTP step is authenticated
     token = create_jwt(admin.id)

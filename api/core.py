@@ -58,8 +58,8 @@ def _resolve_secret_key() -> str:
 
     # 2. Check persisted file (from previous run or setup wizard)
     try:
-        stat = os.stat(_SECRET_KEY_FILE)
-        if stat.st_mode & 0o177:
+        st = os.stat(_SECRET_KEY_FILE)
+        if _stat.S_IMODE(st.st_mode) != 0o600:
             logger.warning("Secret key file %s has loose permissions; fixing.", _SECRET_KEY_FILE)
             os.chmod(_SECRET_KEY_FILE, 0o600)
         with open(_SECRET_KEY_FILE) as f:
@@ -79,8 +79,8 @@ def _resolve_secret_key() -> str:
             f.write(key)
     except FileExistsError:
         # Another process beat us to it — use the existing key
-        stat = os.stat(_SECRET_KEY_FILE)
-        if stat.st_mode & 0o177:
+        st = os.stat(_SECRET_KEY_FILE)
+        if _stat.S_IMODE(st.st_mode) != 0o600:
             logger.warning("Secret key file %s has loose permissions; fixing.", _SECRET_KEY_FILE)
             os.chmod(_SECRET_KEY_FILE, 0o600)
         with open(_SECRET_KEY_FILE) as f:
@@ -90,56 +90,6 @@ def _resolve_secret_key() -> str:
         return existing
     logger.info("Auto-generated SECRET_KEY and saved to %s", _SECRET_KEY_FILE)
     return key
-
-
-# ---------------------------------------------------------------------------
-# One-time setup token (CSRF protection for the first-run wizard)
-# ---------------------------------------------------------------------------
-
-_SETUP_TOKEN_FILE = "/data/.setup_token"
-
-
-def get_or_create_setup_token() -> str:
-    """Return the one-time setup token, creating and logging it on first call."""
-    try:
-        st = os.stat(_SETUP_TOKEN_FILE)
-        if _stat.S_IMODE(st.st_mode) != 0o600:
-            os.chmod(_SETUP_TOKEN_FILE, 0o600)
-        with open(_SETUP_TOKEN_FILE, encoding="utf-8") as f:
-            token = f.read().strip()
-        if token:
-            return token
-    except FileNotFoundError:
-        pass
-
-    # Generate and persist a new token
-    token = secrets.token_urlsafe(32)
-    os.makedirs(os.path.dirname(_SETUP_TOKEN_FILE), exist_ok=True)
-    try:
-        fd = os.open(_SETUP_TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(token)
-    except FileExistsError:
-        # Another process created the file concurrently — read it and fix permissions
-        st = os.stat(_SETUP_TOKEN_FILE)
-        if _stat.S_IMODE(st.st_mode) != 0o600:
-            os.chmod(_SETUP_TOKEN_FILE, 0o600)
-        with open(_SETUP_TOKEN_FILE, encoding="utf-8") as f:
-            token = f.read().strip()
-
-    logger.warning("================================================================")
-    logger.warning(" FIRST-RUN SETUP TOKEN: %s", token)
-    logger.warning(" Open http://<your-server>:8080 and enter this token to proceed")
-    logger.warning("================================================================")
-    return token
-
-
-def delete_setup_token() -> None:
-    """Delete the setup token after the first-run wizard completes successfully."""
-    try:
-        os.unlink(_SETUP_TOKEN_FILE)
-    except FileNotFoundError:
-        pass
 
 
 class Settings(BaseSettings):

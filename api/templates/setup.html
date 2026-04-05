@@ -5,10 +5,10 @@
   <header>
     <h2>Welcome to Callis</h2>
     <p>Create your admin account to get started. This wizard only runs once.</p>
+    <p><strong>Important:</strong> Complete this setup immediately after starting the container. The setup page is publicly accessible until an admin account is created.</p>
   </header>
 
   <form method="post" action="/setup">
-    <input type="hidden" name="setup_token" value="{{ setup_token }}">
     <label for="username">Admin Username</label>
     <input type="text" id="username" name="username" required autocomplete="username" autofocus
            value="{{ username | default('admin') }}"
