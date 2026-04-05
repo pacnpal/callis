@@ -1,6 +1,18 @@
 services:
   callis:
     build: .
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+      - "${SSH_PORT:-2222}:22"
+    volumes:
+      - callis_db:/data
+      - callis_audit_logs:/audit
+      - callis_hostkeys:/etc/ssh/host_keys
+      - callis_sshd_logs:/var/log/callis
+    env_file:
+      - path: .env
+        required: false
     develop:
       watch:
         - action: sync+restart
@@ -12,3 +24,24 @@ services:
             - uv.lock
         - action: rebuild
           path: ./api/pyproject.toml
+
+  fail2ban:
+    image: crazymax/fail2ban:1.1.0
+    profiles: ["fail2ban"]
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - callis_sshd_logs:/var/log/callis-sshd:ro
+      - ./fail2ban:/data
+    env_file:
+      - path: .env
+        required: false
+
+volumes:
+  callis_db:
+  callis_hostkeys:
+  callis_sshd_logs:
+  callis_audit_logs:
