@@ -62,6 +62,21 @@ volumes:
   callis_hostkeys:
 ```
 
+Or with `docker run`:
+
+```bash
+docker run -d \
+  --name callis \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -p 2222:22 \
+  -v callis_db:/data \
+  -v callis_audit:/audit \
+  -v callis_hostkeys:/etc/ssh/host_keys \
+  -v callis_sshd_logs:/var/log/callis \
+  ghcr.io/pacnpal/callis:latest
+```
+
 No `.env` file needed — the setup wizard handles first-run configuration. `SECRET_KEY` is auto-generated and persisted to the data volume.
 
 > **Requires Docker Compose v2.24.0+** for the optional `.env` file syntax used in `docker-compose.yml`. Run `docker compose version` to check.
