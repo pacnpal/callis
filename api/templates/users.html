@@ -16,7 +16,7 @@
     </header>
     <form method="post" action="/users">
       <label for="username">Username</label>
-      <input type="text" id="username" name="username" required pattern="[a-z][a-z0-9_\-]{0,31}" title="Lowercase letters, numbers, hyphens, underscores. Must start with a letter. Max 32 chars." placeholder="johndoe"
+      <input type="text" id="username" name="username" required pattern="[a-z][a-z0-9_-]{0,31}" title="Lowercase letters, numbers, hyphens, underscores. Must start with a letter. Max 32 chars." placeholder="johndoe"
              aria-describedby="username_help">
       <p id="username_help" class="helper-text">This becomes their SSH login name. Lowercase letters, numbers, hyphens, and underscores only.</p>
 
