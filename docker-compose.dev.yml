@@ -1,3 +1,5 @@
+# Requires Docker Compose v2.24.0+ for env_file required:false syntax.
+# See: https://docs.docker.com/compose/compose-file/05-services/#env_file
 services:
   callis:
     build: .
