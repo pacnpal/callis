@@ -6,7 +6,8 @@ from starlette.responses import RedirectResponse, Response
 from core import get_session_factory
 from models import User
 
-_SETUP_EXEMPT_PREFIXES = ("/setup", "/static/", "/health")
+_SETUP_EXEMPT_PATHS = {"/setup"}
+_SETUP_EXEMPT_PREFIXES = ("/static/", "/health")
 
 
 class SetupGuardMiddleware(BaseHTTPMiddleware):
@@ -21,7 +22,7 @@ class SetupGuardMiddleware(BaseHTTPMiddleware):
         path = request.url.path
 
         # Don't block setup routes themselves
-        if any(path.startswith(p) for p in _SETUP_EXEMPT_PREFIXES):
+        if path in _SETUP_EXEMPT_PATHS or any(path.startswith(p) for p in _SETUP_EXEMPT_PREFIXES):
             return await call_next(request)
 
         # Check if any users exist
