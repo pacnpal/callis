@@ -175,8 +175,7 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    if not settings.SECRET_KEY:
-        settings.SECRET_KEY = _resolve_secret_key()
+    settings.SECRET_KEY = _resolve_secret_key()
     return settings
 
 

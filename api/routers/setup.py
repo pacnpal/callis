@@ -130,7 +130,13 @@ async def setup_submit(
                     status_code=400,
                 )
 
-            # Re-check count inside the transaction before inserting to guard against race
+            # Re-check count inside the transaction before inserting.
+            # Design decision: SQLite (the default) is single-writer, so this
+            # re-check alone is sufficient to prevent duplicate admin creation.
+            # For PostgreSQL multi-worker deployments, the User table's unique
+            # constraint on `username` provides the final safety net — the
+            # IntegrityError catch on db.commit() below handles that case.
+            # See the _setup_lock comment at module level for full rationale.
             recount = await db.execute(select(func.count()).select_from(User))
             if recount.scalar() > 0:
                 raise HTTPException(status_code=409, detail="Setup has already been completed.")
