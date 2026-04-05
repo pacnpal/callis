@@ -107,7 +107,7 @@ def _resolve_secret_key() -> str:
             if key:
                 return key
     except FileNotFoundError:
-        pass
+        pass  # No persisted key yet — will auto-generate below
 
     # 3. Auto-generate and persist — create with 0o600 from the start to avoid
     #    a brief window where the file is world-readable.
@@ -419,7 +419,6 @@ def parse_ssh_public_key(key_text: str) -> dict:
 
 def _check_rsa_key_size(key_data: bytes, min_bits: int) -> None:
     """Extract RSA public key size from SSH wire format and check minimum."""
-    offset = 4  # skip type length prefix
     # Skip key type string
     type_len = struct.unpack(">I", key_data[:4])[0]
     offset = 4 + type_len

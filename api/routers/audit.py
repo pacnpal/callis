@@ -36,7 +36,7 @@ async def audit_log(
             action_enum = AuditAction(action)
             query = query.where(AuditLog.action == action_enum)
         except ValueError:
-            pass
+            pass  # Ignore invalid action filter values
 
     if actor:
         query = query.where(AuditLog.actor_id == actor)
@@ -47,7 +47,7 @@ async def audit_log(
             dt = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
             query = query.where(AuditLog.timestamp >= dt)
         except ValueError:
-            pass
+            pass  # Ignore invalid date_from filter values
 
     if date_to:
         try:
@@ -57,7 +57,7 @@ async def audit_log(
             dt = datetime.combine(dt.date(), time.max, tzinfo=timezone.utc)
             query = query.where(AuditLog.timestamp <= dt)
         except ValueError:
-            pass
+            pass  # Ignore invalid date_to filter values
 
     # Count total
     count_query = select(func.count()).select_from(query.subquery())

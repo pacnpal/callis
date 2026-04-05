@@ -16,7 +16,7 @@ from core import get_db, get_engine, get_settings, limiter, register_template_fi
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from middleware.setup_guard import SetupGuardMiddleware
-from models import AuditLog, Base, Host, SSHKey, User, UserRole
+from models import AuditLog, Base, Host, SSHKey, User
 from routers import auth, users, hosts, audit, setup
 from routers.internal import internal_app
 
