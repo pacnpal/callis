@@ -16,6 +16,8 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      dockerhub: ${{ steps.dockerhub.outputs.available }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -112,7 +114,7 @@ jobs:
   update-dockerhub-description:
     runs-on: ubuntu-latest
     needs: build-and-push
-    if: vars.DOCKERHUB_ENABLED == 'true'
+    if: needs.build-and-push.outputs.dockerhub == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
