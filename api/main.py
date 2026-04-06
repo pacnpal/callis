@@ -189,7 +189,16 @@ def _get_callis_script_path() -> Path | None:
 async def callis_script(request: Request):
     script_path = _get_callis_script_path()
     if script_path is None:
-        return PlainTextResponse("callis.sh not found — ensure api/static/callis.sh exists in the deployment\n", status_code=404)
+        api_dir = Path(__file__).resolve().parent
+        checked = [
+            str(api_dir / "static" / "callis.sh"),
+            str(api_dir / "scripts" / "callis.sh"),
+            str(api_dir.parent / "scripts" / "callis.sh"),
+        ]
+        return PlainTextResponse(
+            "callis.sh not found. Checked: " + ", ".join(checked) + "\n",
+            status_code=404,
+        )
     return FileResponse(script_path, media_type="text/plain")
 
 
