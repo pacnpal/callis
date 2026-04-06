@@ -58,12 +58,17 @@ async def save_settings(
     form = await request.form()
     db_settings = await load_db_settings()
     old_values = get_effective_settings(db_settings)
-    changes: dict[str, dict] = {}
     validation_errors: list[str] = []
 
     # Preload all existing settings in a single query to avoid N+1
     existing_result = await db.execute(select(Setting))
     existing_map: dict[str, Setting] = {s.key: s for s in existing_result.scalars().all()}
+
+    # First pass: validate every submitted value without touching the DB.
+    # Collect pending mutations and any errors atomically.
+    pending_deletes: list[str] = []      # keys whose DB rows should be removed
+    pending_upserts: dict[str, str] = {} # key -> validated new_value to write
+    changes: dict[str, dict] = {}
 
     for key, meta in CONFIGURABLE_SETTINGS.items():
         if meta.get("readonly"):
@@ -75,14 +80,11 @@ async def save_settings(
         # For str-type settings, an empty submission removes the DB override
         # so the env-var / compiled default takes effect again.
         if meta["type"] == "str" and not raw:
-            setting = existing_map.get(key)
-            if setting:
+            if key in existing_map:
                 old_val = str(old_values.get(key, meta["default"]))
-                # Compute the effective value that will apply after the DB row is removed
-                # (uses env-var override if set, otherwise compiled default)
                 new_effective = str(get_effective_settings({}).get(key, meta["default"]))
                 changes[key] = {"old": old_val, "new": f"(reverted to: {new_effective})"}
-                await db.delete(setting)
+                pending_deletes.append(key)
             continue
 
         if not raw and meta["type"] == "int":
@@ -113,8 +115,24 @@ async def save_settings(
         old_val = str(old_values.get(key, meta["default"]))
         if new_value != old_val:
             changes[key] = {"old": old_val, "new": new_value}
+        pending_upserts[key] = new_value
 
-        # Upsert from preloaded map
+    # If any field failed validation, return errors without persisting anything.
+    if validation_errors:
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            context={
+                "user": user,
+                "groups": _grouped_settings(old_values),
+                "error": "; ".join(validation_errors),
+            },
+        )
+
+    # Second pass: apply all validated changes atomically.
+    for key in pending_deletes:
+        await db.delete(existing_map[key])
+    for key, new_value in pending_upserts.items():
         setting = existing_map.get(key)
         if setting:
             setting.value = new_value
@@ -137,16 +155,12 @@ async def save_settings(
     # Repopulate cache so instance_name() and other sync readers reflect new values
     fresh_db_settings = await load_db_settings()
 
-    error_msg = "; ".join(validation_errors) if validation_errors else None
-    success_msg = None if error_msg else ("Settings saved." if changes else "No changes detected.")
-
     return templates.TemplateResponse(
         request,
         "settings.html",
         context={
             "user": user,
             "groups": _grouped_settings(get_effective_settings(fresh_db_settings)),
-            "success": success_msg,
-            "error": error_msg,
+            "success": "Settings saved." if changes else "No changes detected.",
         },
     )
