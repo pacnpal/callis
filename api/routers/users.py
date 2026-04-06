@@ -73,7 +73,7 @@ async def user_detail(
     assigned_hosts = [h for h in target_user.assigned_hosts if h.is_active]
 
     settings = get_settings()
-    ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+    ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
 
     return templates.TemplateResponse(
         request,

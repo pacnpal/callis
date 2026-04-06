@@ -59,6 +59,11 @@ async def save_settings(
     db_settings = await load_db_settings()
     old_values = get_effective_settings(db_settings)
     changes: dict[str, dict] = {}
+    validation_errors: list[str] = []
+
+    # Preload all existing settings in a single query to avoid N+1
+    existing_result = await db.execute(select(Setting))
+    existing_map: dict[str, Setting] = {s.key: s for s in existing_result.scalars().all()}
 
     for key, meta in CONFIGURABLE_SETTINGS.items():
         if meta.get("readonly"):
@@ -66,7 +71,21 @@ async def save_settings(
 
         submitted = form.get(key, "")
         raw = submitted if meta["type"] == "text" else submitted.strip()
-        if not raw and meta["type"] in ("int",):
+
+        # For str-type settings, an empty submission removes the DB override
+        # so the env-var / compiled default takes effect again.
+        if meta["type"] == "str" and not raw:
+            setting = existing_map.get(key)
+            if setting:
+                old_val = str(old_values.get(key, meta["default"]))
+                # Compute the effective value that will apply after the DB row is removed
+                # (uses env-var override if set, otherwise compiled default)
+                new_effective = str(get_effective_settings({}).get(key, meta["default"]))
+                changes[key] = {"old": old_val, "new": f"(reverted to: {new_effective})"}
+                await db.delete(setting)
+            continue
+
+        if not raw and meta["type"] == "int":
             continue  # skip empty numeric fields
 
         # Validate and convert
@@ -74,6 +93,7 @@ async def save_settings(
             try:
                 val = int(raw)
             except ValueError:
+                validation_errors.append(f"'{meta['label']}' must be a valid integer")
                 continue
             min_val = meta.get("min")
             max_val = meta.get("max")
@@ -84,6 +104,7 @@ async def save_settings(
             new_value = str(val)
         elif meta["type"] == "choice":
             if raw not in meta.get("choices", []):
+                validation_errors.append(f"'{meta['label']}' has invalid value '{raw}'")
                 continue
             new_value = raw
         else:
@@ -93,9 +114,8 @@ async def save_settings(
         if new_value != old_val:
             changes[key] = {"old": old_val, "new": new_value}
 
-        # Upsert into DB
-        existing = await db.execute(select(Setting).where(Setting.key == key))
-        setting = existing.scalar_one_or_none()
+        # Upsert from preloaded map
+        setting = existing_map.get(key)
         if setting:
             setting.value = new_value
         else:
@@ -114,15 +134,19 @@ async def save_settings(
     await db.flush()
     await db.commit()
     invalidate_db_settings_cache()
+    # Repopulate cache so instance_name() and other sync readers reflect new values
+    fresh_db_settings = await load_db_settings()
+
+    error_msg = "; ".join(validation_errors) if validation_errors else None
+    success_msg = None if error_msg else ("Settings saved." if changes else "No changes detected.")
 
     return templates.TemplateResponse(
         request,
         "settings.html",
         context={
             "user": user,
-            "groups": _grouped_settings(get_effective_settings(
-                {s.key: s.value for s in (await db.execute(select(Setting))).scalars().all()}
-            )),
-            "success": "Settings saved." if changes else "No changes detected.",
+            "groups": _grouped_settings(get_effective_settings(fresh_db_settings)),
+            "success": success_msg,
+            "error": error_msg,
         },
     )
