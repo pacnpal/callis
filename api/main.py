@@ -126,13 +126,12 @@ async def dashboard(
 @app.get("/install.sh")
 async def install_script(request: Request):
     from fastapi.responses import Response
-    settings = get_settings()
-    base = settings.BASE_URL.rstrip("/")
+    script_url = str(request.url_for("callis_script"))
     installer = f'''#!/bin/sh
 set -e
 
 CALLIS_DIR="$HOME/.config/callis"
-SCRIPT_URL="{base}/callis.sh"
+SCRIPT_URL="{script_url}"
 
 echo "Installing Callis CLI..."
 mkdir -p "$CALLIS_DIR"
@@ -171,11 +170,13 @@ echo "  callis <host-alias>"
 
 # Serve the raw CLI script
 @app.get("/callis.sh")
-async def callis_script():
+async def callis_script(request: Request):
     from pathlib import Path
-    from fastapi.responses import Response
-    script = (Path(__file__).parent.parent / "scripts" / "callis.sh").read_text()
-    return Response(content=script, media_type="text/plain")
+    from fastapi.responses import FileResponse, PlainTextResponse
+    script_path = Path(__file__).parent.parent / "scripts" / "callis.sh"
+    if not script_path.is_file():
+        return PlainTextResponse("callis.sh not found\n", status_code=404)
+    return FileResponse(script_path, media_type="text/plain")
 
 
 # Root redirect
