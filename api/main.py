@@ -1,10 +1,12 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from slowapi import _rate_limit_exceeded_handler
@@ -125,7 +127,6 @@ async def dashboard(
 # CLI installer — curl http://callis:8080/install.sh | bash
 @app.get("/install.sh")
 async def install_script(request: Request):
-    from fastapi.responses import Response
     script_url = str(request.url_for("callis_script"))
     installer = f'''#!/bin/sh
 set -e
@@ -168,9 +169,7 @@ echo "  callis <host-alias>"
     return Response(content=installer, media_type="text/plain")
 
 
-def _get_callis_script_path():
-    from pathlib import Path
-
+def _get_callis_script_path() -> Path | None:
     api_dir = Path(__file__).resolve().parent
     candidate_paths = (
         api_dir / "static" / "callis.sh",
@@ -188,17 +187,15 @@ def _get_callis_script_path():
 # Serve the raw CLI script
 @app.get("/callis.sh")
 async def callis_script(request: Request):
-    from fastapi.responses import FileResponse, PlainTextResponse
     script_path = _get_callis_script_path()
     if script_path is None:
-        return PlainTextResponse("callis.sh not found\n", status_code=404)
+        return PlainTextResponse("callis.sh not found — ensure api/static/callis.sh exists in the deployment\n", status_code=404)
     return FileResponse(script_path, media_type="text/plain")
 
 
 # Root redirect
 @app.get("/")
 async def root():
-    from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
@@ -207,7 +204,6 @@ async def root():
 async def http_exception_handler(request: Request, exc: HTTPException):
     # Redirect exceptions (303) pass through as-is
     if exc.status_code == 303:
-        from fastapi.responses import RedirectResponse
         return RedirectResponse(url=exc.headers.get("Location", "/login"), status_code=303)
     # For browser requests, render an HTML error page
     accept = request.headers.get("accept", "")
@@ -219,7 +215,6 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             status_code=exc.status_code,
         )
     # API/JSON clients get the default JSON response
-    from fastapi.responses import JSONResponse
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 
