@@ -77,6 +77,11 @@ _callis_load_config() {
         echo "Error: not configured. Run 'callis setup' first." >&2
         return 1
     fi
+    # Reset variables before parsing so partial/corrupt config is detected below
+    CALLIS_HOST=""
+    CALLIS_PORT=""
+    CALLIS_USER=""
+    CALLIS_KEY=""
     # Parse key=value pairs without sourcing the file (prevents code injection)
     while IFS= read -r line; do
         case "$line" in
@@ -86,6 +91,11 @@ _callis_load_config() {
             CALLIS_KEY=*)  CALLIS_KEY="${line#CALLIS_KEY=}"  ;;
         esac
     done < "$CALLIS_CONFIG_FILE"
+    # Validate all required fields are present
+    if [ -z "$CALLIS_HOST" ] || [ -z "$CALLIS_PORT" ] || [ -z "$CALLIS_USER" ] || [ -z "$CALLIS_KEY" ]; then
+        echo "Error: config file is incomplete or corrupt. Run 'callis setup' to reconfigure." >&2
+        return 1
+    fi
     # Expand a leading ~ in the key path (for backwards compatibility)
     case "$CALLIS_KEY" in
         "~")   CALLIS_KEY="$HOME" ;;
@@ -96,7 +106,7 @@ _callis_load_config() {
 _callis_list() {
     _callis_load_config || return 1
     ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
-        -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+        -o BatchMode=yes -o StrictHostKeyChecking=ask \
         "${CALLIS_USER}@${CALLIS_HOST}" list
 }
 
@@ -119,7 +129,7 @@ _callis_connect() {
     fi
 
     DEST=$(ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
-        -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+        -o BatchMode=yes \
         "${CALLIS_USER}@${CALLIS_HOST}" "resolve ${TAG}" 2>"$STDERR_TMP")
 
     if [ -z "$DEST" ]; then

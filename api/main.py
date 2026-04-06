@@ -14,6 +14,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from core import get_db, get_engine, get_settings, limiter, register_template_filters
 from dependencies import require_totp_complete
@@ -60,6 +61,11 @@ app.add_middleware(TOTPGuardMiddleware)
 app.add_middleware(SetupGuardMiddleware)
 app.add_middleware(SessionMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+# Trust proxy headers (X-Forwarded-Proto/Host) so request.url_for() returns
+# the correct scheme and host when the app is deployed behind a TLS reverse
+# proxy (Caddy, Nginx, Traefik, etc.).  This is safe because Callis is a
+# self-hosted deployment and all network ingress is controlled by the admin.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # Routers
 app.include_router(auth.router)
@@ -187,7 +193,7 @@ def _get_callis_script_path() -> Path | None:
 
 # Serve the raw CLI script
 @app.get("/callis.sh")
-async def callis_script(request: Request):
+async def callis_script():
     script_path = _get_callis_script_path()
     if script_path is None:
         api_dir = Path(__file__).resolve().parent
@@ -196,10 +202,8 @@ async def callis_script(request: Request):
             str(api_dir / "scripts" / "callis.sh"),
             str(api_dir.parent / "scripts" / "callis.sh"),
         ]
-        return PlainTextResponse(
-            "callis.sh not found. Checked: " + ", ".join(checked) + "\n",
-            status_code=404,
-        )
+        logger.warning("callis.sh not found; checked: %s", ", ".join(checked))
+        return PlainTextResponse("callis.sh not found.\n", status_code=404)
     return FileResponse(script_path, media_type="text/plain")
 
 
