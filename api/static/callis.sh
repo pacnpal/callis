@@ -112,7 +112,7 @@ _callis_connect() {
         STDERR_TMP="/dev/null"
     fi
     case "$TAG" in
-        ''|*[!a-z0-9-]*)
+        ''|*[!a-z0-9-]*|-*)
             echo "Error: invalid host tag — tags may only contain lowercase letters, digits, and hyphens" >&2
             return 1 ;;
     esac
