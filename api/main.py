@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import shlex
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
@@ -132,7 +133,7 @@ async def install_script(request: Request):
 set -e
 
 CALLIS_DIR="$HOME/.config/callis"
-SCRIPT_URL="{script_url}"
+SCRIPT_URL={shlex.quote(script_url)}
 
 echo "Installing Callis CLI..."
 mkdir -p "$CALLIS_DIR"
