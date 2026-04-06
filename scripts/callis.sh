@@ -105,17 +105,18 @@ _callis_connect() {
     TAG="$1"
     shift
 
+    case "$TAG" in
+        ''|*[!a-z0-9-]*|-*)
+            echo "Error: invalid host tag — tags may only contain lowercase letters, digits, and hyphens" >&2
+            return 1 ;;
+    esac
+
     STDERR_TMP_CREATED=0
     if STDERR_TMP=$(mktemp "${TMPDIR:-/tmp}/callis-err.XXXXXX"); then
         STDERR_TMP_CREATED=1
     else
         STDERR_TMP="/dev/null"
     fi
-    case "$TAG" in
-        ''|*[!a-z0-9-]*|-*)
-            echo "Error: invalid host tag — tags may only contain lowercase letters, digits, and hyphens" >&2
-            return 1 ;;
-    esac
 
     DEST=$(ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
         -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
