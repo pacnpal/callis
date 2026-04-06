@@ -115,7 +115,7 @@ async def save_settings(
         old_val = str(old_values.get(key, meta["default"]))
         if new_value != old_val:
             changes[key] = {"old": old_val, "new": new_value}
-        pending_upserts[key] = new_value
+            pending_upserts[key] = new_value
 
     # If any field failed validation, return errors without persisting anything.
     if validation_errors:

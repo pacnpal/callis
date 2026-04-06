@@ -545,14 +545,24 @@ def get_effective_settings(db_settings: dict[str, str]) -> dict[str, Any]:
     env = get_settings()
     result: dict[str, Any] = {}
     for key, meta in CONFIGURABLE_SETTINGS.items():
-        # DB value takes priority
-        if key in db_settings:
+        # DB value takes priority unless it is invalid for the expected type.
+        use_db_value = key in db_settings
+        if use_db_value:
             raw = db_settings[key]
             if meta["type"] == "int":
-                result[key] = int(raw)
+                try:
+                    result[key] = int(raw)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Ignoring invalid integer DB override for setting '%s': %r",
+                        key,
+                        raw,
+                    )
+                    use_db_value = False
             else:
                 result[key] = raw
-        else:
+
+        if not use_db_value:
             # Fall back to env-var-based Settings object if it has this attr
             env_attr = key.upper()
             if hasattr(env, env_attr):
