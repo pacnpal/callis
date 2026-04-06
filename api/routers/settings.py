@@ -1,7 +1,6 @@
 from collections import OrderedDict
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
