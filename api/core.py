@@ -6,11 +6,13 @@ import re
 import secrets
 import stat as _stat
 import struct
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
 import pyotp
+from sqlalchemy import select
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -22,7 +24,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from models import AuditAction, AuditLog
+from models import AuditAction, AuditLog, Setting
 
 logger = logging.getLogger("callis")
 
@@ -242,10 +244,19 @@ RESERVED_USERNAMES = frozenset({
 })
 
 
+def _instance_name() -> str:
+    """Return the current instance name (DB override or default)."""
+    if _db_settings_cache is not None and "instance_name" in _db_settings_cache:
+        return _db_settings_cache["instance_name"]
+    return "Callis"
+
+
 def register_template_filters(jinja_templates) -> None:
     """Register custom Jinja2 filters and globals on a Templates instance."""
     jinja_templates.env.filters["slugify"] = slugify
     jinja_templates.env.globals["app_version"] = get_app_version()
+    # Callable so it picks up DB changes at render time
+    jinja_templates.env.globals["instance_name"] = _instance_name
 
 
 # ---------------------------------------------------------------------------
@@ -262,10 +273,24 @@ limiter = Limiter(key_func=get_remote_address)
 JWT_ALGORITHM = "HS256"
 
 
+def _get_session_max_lifetime_seconds() -> int:
+    """Return session max lifetime in seconds, checking DB cache then env."""
+    if _db_settings_cache and "session_max_lifetime" in _db_settings_cache:
+        return int(_db_settings_cache["session_max_lifetime"]) * 60
+    return get_settings().SESSION_MAX_LIFETIME
+
+
+def _get_session_idle_timeout_seconds() -> int:
+    """Return session idle timeout in seconds, checking DB cache then env."""
+    if _db_settings_cache and "session_idle_timeout" in _db_settings_cache:
+        return int(_db_settings_cache["session_idle_timeout"]) * 60
+    return get_settings().SESSION_IDLE_TIMEOUT
+
+
 def create_jwt(user_id: str) -> str:
     settings = get_settings()
     issued_at = datetime.now(timezone.utc)
-    expires_at = issued_at + timedelta(seconds=settings.SESSION_MAX_LIFETIME)
+    expires_at = issued_at + timedelta(seconds=_get_session_max_lifetime_seconds())
     payload = {
         "sub": user_id,
         "iat": int(issued_at.timestamp()),
@@ -284,7 +309,7 @@ def decode_jwt(token: str) -> dict | None:
         if last_activity_str:
             last_activity = datetime.fromisoformat(last_activity_str)
             idle = (datetime.now(timezone.utc) - last_activity).total_seconds()
-            if idle > settings.SESSION_IDLE_TIMEOUT:
+            if idle > _get_session_idle_timeout_seconds():
                 return None
         return payload
     except (JWTError, ValueError, TypeError):
@@ -471,3 +496,80 @@ async def write_audit_log(
     )
     db.add(entry)
     await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Runtime-configurable settings (DB-backed, env vars as fallback)
+# ---------------------------------------------------------------------------
+
+CONFIGURABLE_SETTINGS: dict[str, dict] = OrderedDict([
+    # -- Branding --
+    ("instance_name",        {"type": "str",    "default": "Callis",              "label": "Instance Name",                "group": "Branding",  "help": "Displayed in the navigation bar and page titles."}),
+    ("motd",                 {"type": "text",   "default": "",                    "label": "Login Banner Message",         "group": "Branding",  "help": "Shown on the login page. Supports plain text."}),
+    # -- Security --
+    ("session_idle_timeout", {"type": "int",    "default": 30,                    "label": "Session Idle Timeout (min)",   "group": "Security",  "help": "Minutes of inactivity before a session expires.", "min": 5, "max": 1440}),
+    ("session_max_lifetime", {"type": "int",    "default": 480,                   "label": "Session Max Lifetime (min)",   "group": "Security",  "help": "Maximum session duration regardless of activity.", "min": 15, "max": 10080}),
+    ("max_keys_per_user",    {"type": "int",    "default": 5,                     "label": "Max SSH Keys Per User",        "group": "Security",  "help": "Maximum number of active SSH keys a user can have.", "min": 1, "max": 50}),
+    ("password_min_length",  {"type": "int",    "default": 8,                     "label": "Minimum Password Length",      "group": "Security",  "help": "Minimum characters required for new passwords.", "min": 8, "max": 128}),
+    # -- General --
+    ("base_url",             {"type": "str",    "default": "http://localhost:8080","label": "Base URL",                     "group": "General",   "help": "Public URL of this Callis instance. Used in CLI installer and SSH config."}),
+    ("ssh_port",             {"type": "int",    "default": 2222,                  "label": "SSH Port",                     "group": "General",   "help": "Configured at container level. Displayed here for reference.", "readonly": True}),
+    ("log_level",            {"type": "choice", "default": "info",                "label": "Log Level",                    "group": "General",   "help": "Server log verbosity. Takes effect immediately.", "choices": ["debug", "info", "warning", "error"]}),
+])
+
+
+# In-memory cache for DB settings; cleared on save.
+_db_settings_cache: dict[str, str] | None = None
+
+
+async def load_db_settings() -> dict[str, str]:
+    """Load all settings from the database, using cache if available."""
+    global _db_settings_cache
+    if _db_settings_cache is not None:
+        return _db_settings_cache
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(select(Setting))
+        rows = result.scalars().all()
+    _db_settings_cache = {row.key: row.value for row in rows}
+    return _db_settings_cache
+
+
+def invalidate_db_settings_cache() -> None:
+    global _db_settings_cache
+    _db_settings_cache = None
+
+
+def get_effective_settings(db_settings: dict[str, str]) -> dict[str, Any]:
+    """Merge DB overrides on top of env-var / default values."""
+    env = get_settings()
+    result: dict[str, Any] = {}
+    for key, meta in CONFIGURABLE_SETTINGS.items():
+        # DB value takes priority
+        if key in db_settings:
+            raw = db_settings[key]
+            if meta["type"] == "int":
+                result[key] = int(raw)
+            else:
+                result[key] = raw
+        else:
+            # Fall back to env-var-based Settings object if it has this attr
+            env_attr = key.upper()
+            if hasattr(env, env_attr):
+                val = getattr(env, env_attr)
+                # Convert seconds to minutes for the UI fields
+                if key == "session_idle_timeout":
+                    val = val // 60
+                elif key == "session_max_lifetime":
+                    val = val // 60
+                result[key] = val
+            else:
+                result[key] = meta["default"]
+    return result
+
+
+async def get_runtime_setting(key: str) -> Any:
+    """Get a single runtime setting value (DB override or default)."""
+    db_settings = await load_db_settings()
+    effective = get_effective_settings(db_settings)
+    return effective.get(key)

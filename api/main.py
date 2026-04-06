@@ -12,12 +12,12 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core import get_db, get_engine, get_settings, limiter, register_template_filters
+from core import get_db, get_engine, get_settings, limiter, load_db_settings, register_template_filters
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from middleware.setup_guard import SetupGuardMiddleware
 from models import AuditLog, Base, Host, SSHKey, User
-from routers import auth, users, hosts, audit, setup
+from routers import auth, users, hosts, audit, setup, settings as settings_router
 from routers.internal import internal_app
 
 logger = logging.getLogger("callis")
@@ -64,6 +64,7 @@ app.include_router(setup.router)
 app.include_router(users.router)
 app.include_router(hosts.router)
 app.include_router(audit.router)
+app.include_router(settings_router.router)
 
 
 # Dashboard
@@ -181,6 +182,9 @@ async def _init_db():
 async def run_servers():
     # Initialize DB before either server starts accepting connections
     await _init_db()
+
+    # Pre-load runtime settings into cache
+    await load_db_settings()
 
     # Warn if no admin account has been created yet (first-run state)
     from core import get_session_factory

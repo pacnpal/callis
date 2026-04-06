@@ -14,6 +14,10 @@
   background: var(--pico-ins-color);
   color: #fff;
 }
+.flash-info {
+  background: var(--pico-primary-background);
+  color: var(--pico-primary-inverse);
+}
 nav .brand {
   font-weight: bold;
 }
@@ -90,3 +94,4 @@ table { font-size: 0.9em; }
 .getting-started ol { padding-left: 1.25rem; }
 .getting-started li { margin-bottom: 0.5rem; }
 .alias-col { font-family: var(--pico-font-family-monospace, monospace); font-size: 0.85em; }
+.setting-row { margin-bottom: 0.5rem; }

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Settings - {{ instance_name() }}{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+
+<p class="text-muted">Configure your Callis instance. Changes take effect immediately. Settings override environment variable defaults and persist across restarts.</p>
+
+<form method="post" action="/settings">
+  {% for group_name, settings in groups.items() %}
+  <article>
+    <header><strong>{{ group_name }}</strong></header>
+    {% for s in settings %}
+    <div class="setting-row">
+      <label for="{{ s.key }}">{{ s.label }}</label>
+      {% if s.readonly is defined and s.readonly %}
+        <input type="text" id="{{ s.key }}" value="{{ s.value }}" disabled>
+        <p class="helper-text">{{ s.help }}</p>
+      {% elif s.type == "choice" %}
+        <select id="{{ s.key }}" name="{{ s.key }}">
+          {% for opt in s.choices %}
+            <option value="{{ opt }}" {% if s.value == opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+        <p class="helper-text">{{ s.help }}</p>
+      {% elif s.type == "text" %}
+        <textarea id="{{ s.key }}" name="{{ s.key }}" rows="3" placeholder="{{ s.help }}">{{ s.value }}</textarea>
+        <p class="helper-text">{{ s.help }}</p>
+      {% elif s.type == "int" %}
+        <input type="number" id="{{ s.key }}" name="{{ s.key }}" value="{{ s.value }}"
+               {% if s.min is defined %}min="{{ s.min }}"{% endif %}
+               {% if s.max is defined %}max="{{ s.max }}"{% endif %}>
+        <p class="helper-text">{{ s.help }}</p>
+      {% else %}
+        <input type="text" id="{{ s.key }}" name="{{ s.key }}" value="{{ s.value }}">
+        <p class="helper-text">{{ s.help }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </article>
+  {% endfor %}
+
+  <button type="submit">Save Changes</button>
+</form>
+{% endblock %}

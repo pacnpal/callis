@@ -14,7 +14,7 @@
 <body>
   <nav class="container-fluid">
     <ul>
-      <li><a href="/dashboard" class="brand">Callis</a></li>
+      <li><a href="/dashboard" class="brand">{{ instance_name() }}</a></li>
     </ul>
     <ul>
       {% if user %}
@@ -26,6 +26,9 @@
         <li><a href="/users/{{ user.id }}">My Profile</a></li>
         <li><a href="/hosts">Hosts</a></li>
         <li><a href="/audit">Audit Log</a></li>
+        {% if user.role.value == "admin" %}
+          <li><a href="/settings">Settings</a></li>
+        {% endif %}
         {% endif %}
         <li>
           <form method="post" action="/logout" class="nav-form">
