@@ -13,26 +13,26 @@
     <div class="setting-row">
       <label for="{{ s.key }}">{{ s.label }}</label>
       {% if s.readonly is defined and s.readonly %}
-        <input type="text" id="{{ s.key }}" value="{{ s.value }}" disabled>
-        <p class="helper-text">{{ s.help }}</p>
+        <input type="text" id="{{ s.key }}" value="{{ s.value }}" aria-describedby="{{ s.key }}_help" disabled>
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
       {% elif s.type == "choice" %}
-        <select id="{{ s.key }}" name="{{ s.key }}">
+        <select id="{{ s.key }}" name="{{ s.key }}" aria-describedby="{{ s.key }}_help">
           {% for opt in s.choices %}
             <option value="{{ opt }}" {% if s.value == opt %}selected{% endif %}>{{ opt }}</option>
           {% endfor %}
         </select>
-        <p class="helper-text">{{ s.help }}</p>
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
       {% elif s.type == "text" %}
-        <textarea id="{{ s.key }}" name="{{ s.key }}" rows="3" placeholder="{{ s.help }}">{{ s.value }}</textarea>
-        <p class="helper-text">{{ s.help }}</p>
+        <textarea id="{{ s.key }}" name="{{ s.key }}" rows="3" placeholder="{{ s.help }}" aria-describedby="{{ s.key }}_help">{{ s.value }}</textarea>
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
       {% elif s.type == "int" %}
-        <input type="number" id="{{ s.key }}" name="{{ s.key }}" value="{{ s.value }}"
+        <input type="number" id="{{ s.key }}" name="{{ s.key }}" value="{{ s.value }}" aria-describedby="{{ s.key }}_help"
                {% if s.min is defined %}min="{{ s.min }}"{% endif %}
                {% if s.max is defined %}max="{{ s.max }}"{% endif %}>
-        <p class="helper-text">{{ s.help }}</p>
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
       {% else %}
-        <input type="text" id="{{ s.key }}" name="{{ s.key }}" value="{{ s.value }}">
-        <p class="helper-text">{{ s.help }}</p>
+        <input type="text" id="{{ s.key }}" name="{{ s.key }}" value="{{ s.value }}" aria-describedby="{{ s.key }}_help">
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
       {% endif %}
     </div>
     {% endfor %}

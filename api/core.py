@@ -514,7 +514,7 @@ CONFIGURABLE_SETTINGS: dict[str, dict] = OrderedDict([
     # -- General --
     ("base_url",             {"type": "str",    "default": "http://localhost:8080","label": "Base URL",                     "group": "General",   "help": "Public URL of this Callis instance. Used in CLI installer and SSH config."}),
     ("ssh_port",             {"type": "int",    "default": 2222,                  "label": "SSH Port",                     "group": "General",   "help": "Configured at container level. Displayed here for reference.", "readonly": True}),
-    ("log_level",            {"type": "choice", "default": "info",                "label": "Log Level",                    "group": "General",   "help": "Server log verbosity. Takes effect immediately.", "choices": ["debug", "info", "warning", "error"]}),
+    ("log_level",            {"type": "choice", "default": "info",                "label": "Log Level",                    "group": "General",   "help": "Server log verbosity. Requires restart to take effect.", "choices": ["debug", "info", "warning", "error"], "readonly": True}),
 ])
 
 

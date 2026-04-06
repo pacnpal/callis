@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core import get_db, get_engine, get_settings, limiter, load_db_settings, register_template_filters
+from core import get_db, get_engine, get_runtime_setting, get_settings, limiter, load_db_settings, register_template_filters
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from middleware.setup_guard import SetupGuardMiddleware
@@ -106,7 +106,7 @@ async def dashboard(
     recent_audit = audit_result.scalars().all()
 
     # SSH host for config snippet
-    ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+    ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
 
     return templates.TemplateResponse(
         request,

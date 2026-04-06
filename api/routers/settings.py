@@ -65,7 +65,8 @@ async def save_settings(
         if meta.get("readonly"):
             continue
 
-        raw = form.get(key, "").strip()
+        submitted = form.get(key, "")
+        raw = submitted if meta["type"] == "text" else submitted.strip()
         if not raw and meta["type"] in ("int",):
             continue  # skip empty numeric fields
 
@@ -112,6 +113,7 @@ async def save_settings(
         )
 
     await db.flush()
+    await db.commit()
     invalidate_db_settings_cache()
 
     return templates.TemplateResponse(
