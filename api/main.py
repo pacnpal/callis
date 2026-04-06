@@ -168,13 +168,29 @@ echo "  callis <host-alias>"
     return Response(content=installer, media_type="text/plain")
 
 
+def _get_callis_script_path():
+    from pathlib import Path
+
+    api_dir = Path(__file__).resolve().parent
+    candidate_paths = (
+        api_dir / "static" / "callis.sh",
+        api_dir / "scripts" / "callis.sh",
+        api_dir.parent / "scripts" / "callis.sh",
+    )
+
+    for candidate_path in candidate_paths:
+        if candidate_path.is_file():
+            return candidate_path
+
+    return None
+
+
 # Serve the raw CLI script
 @app.get("/callis.sh")
 async def callis_script(request: Request):
-    from pathlib import Path
     from fastapi.responses import FileResponse, PlainTextResponse
-    script_path = Path(__file__).parent.parent / "scripts" / "callis.sh"
-    if not script_path.is_file():
+    script_path = _get_callis_script_path()
+    if script_path is None:
         return PlainTextResponse("callis.sh not found\n", status_code=404)
     return FileResponse(script_path, media_type="text/plain")
 
