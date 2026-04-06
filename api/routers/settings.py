@@ -127,6 +127,7 @@ async def save_settings(
                 "groups": _grouped_settings(old_values),
                 "error": "; ".join(validation_errors),
             },
+            status_code=400,
         )
 
     # Second pass: apply all validated changes atomically.
@@ -146,7 +147,7 @@ async def save_settings(
             action=AuditAction.SETTINGS_CHANGED,
             target_type="settings",
             source_ip=request.client.host if request.client else None,
-            detail=changes,
+            detail={k: f"{v['old']} → {v['new']}" for k, v in changes.items()},
         )
 
     await db.flush()

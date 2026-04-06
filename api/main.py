@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core import get_db, get_engine, get_runtime_setting, get_settings, limiter, load_db_settings, register_template_filters
+from core import get_db, get_engine, get_runtime_setting, get_session_factory, get_settings, limiter, load_db_settings, register_template_filters
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from middleware.setup_guard import SetupGuardMiddleware
@@ -33,7 +33,23 @@ register_template_filters(templates)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # DB init runs in _init_db() before servers start; lifespan only handles shutdown
+    # DB init + settings cache preload on startup — runs for any entrypoint
+    # (both `python main.py` via run_servers() and `uvicorn main:app` directly)
+    await _init_db()
+    await load_db_settings()
+
+    # Warn if no admin account has been created yet (first-run state)
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(select(func.count()).select_from(User))
+        if result.scalar() == 0:
+            logger.warning("=" * 60)
+            logger.warning("FIRST RUN: No admin account exists.")
+            logger.warning("Open http://<server>:8080 IMMEDIATELY to complete setup.")
+            logger.warning("The /setup page is publicly accessible until an admin")
+            logger.warning("account is created. Do not expose this port until done.")
+            logger.warning("=" * 60)
+
     yield
     engine = get_engine()
     await engine.dispose()
@@ -180,25 +196,6 @@ async def _init_db():
 
 
 async def run_servers():
-    # Initialize DB before either server starts accepting connections
-    await _init_db()
-
-    # Pre-load runtime settings into cache
-    await load_db_settings()
-
-    # Warn if no admin account has been created yet (first-run state)
-    from core import get_session_factory
-    factory = get_session_factory()
-    async with factory() as db:
-        result = await db.execute(select(func.count()).select_from(User))
-        if result.scalar() == 0:
-            logger.warning("=" * 60)
-            logger.warning("FIRST RUN: No admin account exists.")
-            logger.warning("Open http://<server>:8080 IMMEDIATELY to complete setup.")
-            logger.warning("The /setup page is publicly accessible until an admin")
-            logger.warning("account is created. Do not expose this port until done.")
-            logger.warning("=" * 60)
-
     settings = get_settings()
     log_level = settings.LOG_LEVEL.lower()
 
