@@ -51,19 +51,7 @@
       </tr>
     </thead>
     <tbody id="audit-table-body">
-      {% for entry in entries %}
-      <tr>
-        <td class="text-small">{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-        <td><span class="badge">{{ entry.action.value }}</span></td>
-        <td>{{ entry.actor.username if entry.actor else "system" }}</td>
-        <td class="text-small">{{ entry.target_type }}{% if entry.target_id %}:{{ entry.target_id[:8] }}{% endif %}</td>
-        <td class="text-small"><code>{{ entry.source_ip or "" }}</code></td>
-        <td class="text-small text-muted">{{ entry.detail | tojson if entry.detail else "" }}</td>
-      </tr>
-      {% endfor %}
-      {% if not entries %}
-      <tr><td colspan="6" class="text-muted">No audit entries found.</td></tr>
-      {% endif %}
+      {% include "partials/audit_rows.html" %}
     </tbody>
   </table>
 </figure>
