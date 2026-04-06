@@ -106,7 +106,7 @@ _callis_load_config() {
 _callis_list() {
     _callis_load_config || return 1
     ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
-        -o BatchMode=yes -o StrictHostKeyChecking=ask \
+        -o BatchMode=yes -o StrictHostKeyChecking=yes \
         "${CALLIS_USER}@${CALLIS_HOST}" list
 }
 
@@ -129,7 +129,7 @@ _callis_connect() {
     fi
 
     DEST=$(ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
-        -o BatchMode=yes \
+        -o BatchMode=yes -o StrictHostKeyChecking=yes \
         "${CALLIS_USER}@${CALLIS_HOST}" "resolve ${TAG}" 2>"$STDERR_TMP")
 
     if [ -z "$DEST" ]; then
