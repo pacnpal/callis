@@ -79,6 +79,19 @@ _callis_setup() {
     chmod 600 "$CALLIS_CONFIG_FILE"
 
     echo "Configuration saved to ${CALLIS_CONFIG_FILE}"
+
+    # Fetch the SSH host key (TOFU — trust on first use) and store it in a
+    # Callis-specific known_hosts file so strict host key checking works.
+    printf "Fetching SSH host key from %s:%s...\n" "$CALLIS_HOST" "$CALLIS_PORT"
+    FETCHED=$(ssh-keyscan -p "$CALLIS_PORT" -t ed25519 "$CALLIS_HOST" 2>/dev/null)
+    if [ -n "$FETCHED" ]; then
+        printf '%s\n' "$FETCHED" > "${CALLIS_CONFIG_DIR}/known_hosts"
+        chmod 600 "${CALLIS_CONFIG_DIR}/known_hosts"
+        echo "Host key saved."
+    else
+        echo "Warning: could not fetch SSH host key from ${CALLIS_HOST}:${CALLIS_PORT}." >&2
+        echo "Run 'callis setup' again once the server is reachable." >&2
+    fi
 }
 
 _callis_load_config() {
@@ -114,8 +127,13 @@ _callis_load_config() {
 
 _callis_list() {
     _callis_load_config || return 1
+    if [ ! -f "${CALLIS_CONFIG_DIR}/known_hosts" ]; then
+        echo "Error: SSH host key not found. Run 'callis setup' to fetch it." >&2
+        return 1
+    fi
     ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
+        -o UserKnownHostsFile="${CALLIS_CONFIG_DIR}/known_hosts" \
         "${CALLIS_USER}@${CALLIS_HOST}" list
 }
 
@@ -130,6 +148,11 @@ _callis_connect() {
             return 1 ;;
     esac
 
+    if [ ! -f "${CALLIS_CONFIG_DIR}/known_hosts" ]; then
+        echo "Error: SSH host key not found. Run 'callis setup' to fetch it." >&2
+        return 1
+    fi
+
     STDERR_TMP_CREATED=0
     if STDERR_TMP=$(mktemp "${TMPDIR:-/tmp}/callis-err.XXXXXX"); then
         STDERR_TMP_CREATED=1
@@ -139,6 +162,7 @@ _callis_connect() {
 
     DEST=$(ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
+        -o UserKnownHostsFile="${CALLIS_CONFIG_DIR}/known_hosts" \
         "${CALLIS_USER}@${CALLIS_HOST}" "resolve ${TAG}" 2>"$STDERR_TMP")
 
     if [ -z "$DEST" ]; then
@@ -161,6 +185,7 @@ _callis_connect() {
 
     ssh -i "$CALLIS_KEY" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
+        -o UserKnownHostsFile="${CALLIS_CONFIG_DIR}/known_hosts" \
         -J "${CALLIS_USER}@${CALLIS_HOST}:${CALLIS_PORT}" \
         -p "$TARGET_PORT" "$@" \
         "${CALLIS_USER}@${TARGET_HOST}"
