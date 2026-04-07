@@ -2,7 +2,7 @@
 # Callis CLI — tag-based SSH access through your Callis bastion.
 #
 # Usage:
-#   source /path/to/callis.sh   (or add to your shell rc file)
+#   . /path/to/callis.sh        (or add to your shell rc file)
 #   callis setup                 — configure connection details
 #   callis list                  — show available hosts
 #   callis <tag> [ssh args...]   — connect to a host by tag

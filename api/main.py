@@ -63,11 +63,11 @@ app.add_middleware(SessionMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 # When HTTPS_ENABLED=true the app is behind a TLS reverse proxy.  Trust
 # X-Forwarded-Proto/Host headers so request.url_for() returns https:// URLs.
-# Only activated for HTTPS_ENABLED deployments so the middleware is not
-# present when users run plain HTTP (Mode A), preventing header-spoofing
-# by direct clients in that mode.
+# TRUSTED_PROXIES (default "*") can be set to a specific IP or CIDR so only
+# known proxy addresses can set forwarding headers, protecting audit-log
+# source IPs and request-derived URLs from being spoofed by direct clients.
 if get_settings().HTTPS_ENABLED:
-    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=get_settings().TRUSTED_PROXIES)
 
 # Routers
 app.include_router(auth.router)
@@ -133,7 +133,7 @@ async def dashboard(
     )
 
 
-# CLI installer — curl http://callis:8080/install.sh | bash
+# CLI installer — curl http://callis:8080/install.sh | sh
 @app.get("/install.sh")
 async def install_script(request: Request):
     script_url = str(request.url_for("callis_script"))
