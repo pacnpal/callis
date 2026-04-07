@@ -564,12 +564,12 @@ def update_db_settings_cache(
     upserts: dict[str, str],
     deletes: list[str],
 ) -> None:
-    """Apply pending save mutations directly to the in-memory cache.
+    """Apply committed save mutations directly to the in-memory cache.
 
-    Called after db.flush() in save_settings() so that the post-save template
-    render (and any concurrent requests) see the new values immediately —
-    without a race window where the cache is None and another request can
-    repopulate it with stale (pre-commit) DB data.
+    Called after db.commit() in save_settings() so that the post-save
+    template render (and any concurrent requests) see the new values
+    immediately, while also ensuring the cache is never repopulated from
+    stale pre-commit DB state during the save.
     """
     global _db_settings_cache
     if _db_settings_cache is None:

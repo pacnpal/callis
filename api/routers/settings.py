@@ -187,8 +187,7 @@ async def save_settings(
     update_db_settings_cache(pending_upserts, pending_deletes)
 
     # Build the post-save view in memory from the validated changes so we
-    # don't need a redundant commit + new DB round-trip.  The Depends(get_db)
-    # dependency commits the transaction at the end of the request.
+    # don't need a redundant DB round-trip after the explicit commit above.
     current_values = dict(old_values)
     for key in pending_deletes:
         current_values[key] = reverted_to[key]
