@@ -547,8 +547,8 @@ def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str |
         try:
             with open(pub_path, "w") as fh:
                 fh.write(pub_text + "\n")
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("Could not write deploy public key to %s: %s", pub_path, exc)
         return pub_text
     except FileNotFoundError:
         return None
