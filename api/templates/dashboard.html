@@ -62,7 +62,7 @@
   <div class="ssh-config-actions">
     <button type="button" class="outline btn-sm" data-copy-trigger="cli-install">Copy</button>
   </div>
-  <pre class="ssh-config" data-copy-target="cli-install">curl -fsSL {{ request.url_for('install_script') }} | bash</pre>
+  <pre class="ssh-config" data-copy-target="cli-install">curl -fsSL {{ request.url_for('install_script') }} | sh</pre>
   <p class="text-small text-muted">Then run <code>callis setup</code> to configure, <code>callis list</code> to see hosts, and <code>callis &lt;alias&gt;</code> to connect.</p>
 </section>
 

@@ -61,11 +61,13 @@ app.add_middleware(TOTPGuardMiddleware)
 app.add_middleware(SetupGuardMiddleware)
 app.add_middleware(SessionMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-# Trust proxy headers (X-Forwarded-Proto/Host) so request.url_for() returns
-# the correct scheme and host when the app is deployed behind a TLS reverse
-# proxy (Caddy, Nginx, Traefik, etc.).  This is safe because Callis is a
-# self-hosted deployment and all network ingress is controlled by the admin.
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+# When HTTPS_ENABLED=true the app is behind a TLS reverse proxy.  Trust
+# X-Forwarded-Proto/Host headers so request.url_for() returns https:// URLs.
+# Only activated for HTTPS_ENABLED deployments so the middleware is not
+# present when users run plain HTTP (Mode A), preventing header-spoofing
+# by direct clients in that mode.
+if get_settings().HTTPS_ENABLED:
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # Routers
 app.include_router(auth.router)
@@ -143,6 +145,7 @@ SCRIPT_URL={shlex.quote(script_url)}
 
 echo "Installing Callis CLI..."
 mkdir -p "$CALLIS_DIR"
+chmod 700 "$CALLIS_DIR"
 curl -fsSL "$SCRIPT_URL" -o "$CALLIS_DIR/callis.sh"
 chmod 644 "$CALLIS_DIR/callis.sh"
 
@@ -168,7 +171,7 @@ if [ "$ADDED" -eq 0 ]; then
 fi
 
 echo ""
-echo "Done! Run 'source $CALLIS_DIR/callis.sh' or open a new shell, then:"
+echo "Done! Run '$SOURCE_LINE' or open a new shell, then:"
 echo "  callis setup"
 echo "  callis list"
 echo "  callis <host-alias>"
@@ -177,18 +180,10 @@ echo "  callis <host-alias>"
 
 
 def _get_callis_script_path() -> Path | None:
-    api_dir = Path(__file__).resolve().parent
-    candidate_paths = (
-        api_dir / "static" / "callis.sh",
-        api_dir / "scripts" / "callis.sh",
-        api_dir.parent / "scripts" / "callis.sh",
-    )
-
-    for candidate_path in candidate_paths:
-        if candidate_path.is_file():
-            return candidate_path
-
-    return None
+    # api/static/callis.sh is the single canonical source; it is bundled into
+    # the Docker image via `COPY api/ .` so it is always present in production.
+    script_path = Path(__file__).resolve().parent / "static" / "callis.sh"
+    return script_path if script_path.is_file() else None
 
 
 # Serve the raw CLI script
@@ -196,13 +191,10 @@ def _get_callis_script_path() -> Path | None:
 async def callis_script():
     script_path = _get_callis_script_path()
     if script_path is None:
-        api_dir = Path(__file__).resolve().parent
-        checked = [
-            str(api_dir / "static" / "callis.sh"),
-            str(api_dir / "scripts" / "callis.sh"),
-            str(api_dir.parent / "scripts" / "callis.sh"),
-        ]
-        logger.warning("callis.sh not found; checked: %s", ", ".join(checked))
+        logger.warning(
+            "callis.sh not found; expected at: %s",
+            str(Path(__file__).resolve().parent / "static" / "callis.sh"),
+        )
         return PlainTextResponse("callis.sh not found.\n", status_code=404)
     return FileResponse(script_path, media_type="text/plain")
 

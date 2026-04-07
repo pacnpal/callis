@@ -48,14 +48,23 @@ USAGE
 
 _callis_setup() {
     mkdir -p "$CALLIS_CONFIG_DIR"
+    chmod 700 "$CALLIS_CONFIG_DIR"
 
     printf "Callis server hostname: "
     read -r CALLIS_HOST
+    if [ -z "$CALLIS_HOST" ]; then
+        echo "Error: hostname is required." >&2
+        return 1
+    fi
     printf "Callis SSH port [2222]: "
     read -r CALLIS_PORT
     CALLIS_PORT="${CALLIS_PORT:-2222}"
     printf "Your Callis username: "
     read -r CALLIS_USER
+    if [ -z "$CALLIS_USER" ]; then
+        echo "Error: username is required." >&2
+        return 1
+    fi
     printf "Path to your SSH key [$HOME/.ssh/id_ed25519]: "
     read -r CALLIS_KEY
     CALLIS_KEY="${CALLIS_KEY:-$HOME/.ssh/id_ed25519}"
