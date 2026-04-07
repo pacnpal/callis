@@ -570,7 +570,7 @@ def get_server_deploy_public_key() -> str:
     The result is cached in memory after the first successful read so that
     subsequent calls do not block the event loop with disk I/O.
     """
-    _deploy_public_key_cache = None
+    global _deploy_public_key_cache
     if _deploy_public_key_cache is not None:
         return _deploy_public_key_cache
 
