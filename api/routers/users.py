@@ -1,4 +1,5 @@
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -7,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_runtime_setting, get_settings, hash_password, parse_ssh_public_key, register_template_filters, write_audit_log
+from core import RESERVED_USERNAMES, USERNAME_RE, generate_ssh_keypair, get_db, get_runtime_setting, get_settings, hash_password, parse_ssh_public_key, register_template_filters, write_audit_log
 from dependencies import require_admin_or_self, require_role
 from models import AuditAction, SSHKey, User, UserRole
 
@@ -391,3 +392,89 @@ async def revoke_key(
             context={"keys": keys, "target_user_id": user_id, "user": user},
         )
     return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)
+
+
+@router.post("/users/{user_id}/keys/generate")
+async def generate_key(
+    request: Request,
+    user_id: str,
+    label: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_self),
+):
+    # Verify target user exists and is active
+    target_result = await db.execute(select(User).where(User.id == user_id))
+    target = target_result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target.is_active:
+        raise HTTPException(status_code=400, detail="Cannot generate keys for inactive user")
+
+    # Check key limit
+    max_keys = await get_runtime_setting("max_keys_per_user")
+    count_result = await db.execute(
+        select(func.count()).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+    )
+    current_count = count_result.scalar()
+    if current_count >= max_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {max_keys} keys per user",
+        )
+
+    # Default label when blank
+    label = label.strip()
+    if not label:
+        label = f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
+
+    # Generate Ed25519 keypair; use username as the key comment
+    private_key_text, public_key_text = generate_ssh_keypair(comment=target.username)
+
+    try:
+        key_info = parse_ssh_public_key(public_key_text)
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=f"Key generation error: {e}")
+
+    new_key = SSHKey(
+        user_id=user_id,
+        label=label,
+        public_key_text=key_info["public_key_text"],
+        fingerprint=key_info["fingerprint"],
+        key_type=key_info["key_type"],
+    )
+    db.add(new_key)
+    await db.flush()
+
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.KEY_ADDED,
+        target_type="key",
+        target_id=new_key.id,
+        source_ip=request.client.host if request.client else None,
+        detail={
+            "fingerprint": key_info["fingerprint"],
+            "key_type": key_info["key_type"],
+            "label": label,
+            "generated": True,
+        },
+    )
+
+    # Fetch updated key list for the out-of-band swap
+    keys_result = await db.execute(
+        select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+    )
+    keys = keys_result.scalars().all()
+
+    return templates.TemplateResponse(
+        request,
+        "partials/generated_key.html",
+        context={
+            "private_key": private_key_text,
+            "label": label,
+            "fingerprint": key_info["fingerprint"],
+            "keys": keys,
+            "target_user_id": user_id,
+            "user": user,
+        },
+    )

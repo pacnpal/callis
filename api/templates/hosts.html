@@ -127,4 +127,17 @@
 {% if not hosts %}
 <p class="text-muted">No hosts configured yet. {% if user.role.value == "admin" %}Click <strong>Add Host</strong> above to register your first internal server. Once added, assign users so they can connect through the bastion.{% else %}Ask an administrator to add hosts and assign you to them.{% endif %}</p>
 {% endif %}
+
+{% if user.role.value == "admin" and server_deploy_key %}
+<hr>
+<div class="page-header">
+  <h3>Callis Server Key</h3>
+</div>
+<p class="text-muted">Add this public key to each target host's <code>~/.ssh/authorized_keys</code> (or the relevant system user's authorized_keys) to allow Callis to authenticate when connecting directly to that host. This key is unique to this Callis instance.</p>
+<div class="ssh-config-actions">
+  <button type="button" class="outline btn-sm" data-copy-trigger="server-deploy-key">Copy</button>
+</div>
+<pre class="ssh-config" data-copy-target="server-deploy-key">{{ server_deploy_key }}</pre>
+<p class="text-small text-muted">On each target host run: <code>echo '{{ server_deploy_key }}' >> ~/.ssh/authorized_keys</code></p>
+{% endif %}
 {% endblock %}

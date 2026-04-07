@@ -115,3 +115,25 @@ document.addEventListener("change", function (e) {
     }
   }
 });
+
+// Download private key: reads the key from the element referenced by
+// data-key-source (a data-copy-target id) and triggers a browser download
+// using the filename in data-download-key.
+document.addEventListener("click", function (e) {
+  var btn = e.target.closest("[data-download-key]");
+  if (!btn) return;
+  var filename = btn.getAttribute("data-download-key") || "id_ed25519";
+  var sourceId = btn.getAttribute("data-key-source") || "generated-private-key";
+  var copyTarget = document.querySelector('[data-copy-target="' + sourceId + '"]');
+  if (!copyTarget) return;
+  var text = copyTarget.textContent;
+  var blob = new Blob([text], { type: "text/plain" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});

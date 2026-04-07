@@ -16,6 +16,14 @@ from sqlalchemy import select
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    PublicFormat,
+    load_pem_private_key,
+)
 import jwt
 from jwt.exceptions import PyJWTError as JWTError
 import bcrypt
@@ -485,6 +493,112 @@ def _check_rsa_key_size(key_data: bytes, min_bits: int) -> None:
 
     if key_bits < min_bits:
         raise ValueError(f"RSA key is {key_bits} bits, minimum {min_bits} required")
+
+
+# ---------------------------------------------------------------------------
+# SSH Keypair Generation
+# ---------------------------------------------------------------------------
+
+def generate_ssh_keypair(comment: str = "") -> tuple[str, str]:
+    """Generate an Ed25519 SSH keypair.
+
+    Returns:
+        (private_key_openssh: str, public_key_openssh: str)
+
+    The private key is in OpenSSH PEM format.  The public key is a single
+    authorised-keys line; an optional comment is appended when provided.
+    """
+    private_key = Ed25519PrivateKey.generate()
+    private_key_text = private_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.OpenSSH,
+        encryption_algorithm=NoEncryption(),
+    ).decode()
+    public_key_text = private_key.public_key().public_bytes(
+        encoding=Encoding.OpenSSH,
+        format=PublicFormat.OpenSSH,
+    ).decode().rstrip()
+    if comment:
+        public_key_text = f"{public_key_text} {comment}"
+    return private_key_text, public_key_text
+
+
+_DEPLOY_KEY_PATH = "/data/callis_deploy_key"
+
+
+def get_server_deploy_public_key() -> str:
+    """Return Callis's server deploy public key, generating it if needed.
+
+    The keypair is persisted to /data/callis_deploy_key[.pub].  Returns the
+    OpenSSH public key as a single-line string, or an empty string if the key
+    cannot be generated (e.g. /data is not writable in dev without Docker).
+
+    This function performs synchronous file I/O.  It is intended to be called
+    at most once per process lifetime (on first access) so the blocking impact
+    is negligible.
+    """
+    priv_path = _DEPLOY_KEY_PATH
+    pub_path = priv_path + ".pub"
+
+    # Fast path: public key file already exists.
+    try:
+        with open(pub_path) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        logger.warning("Could not read deploy public key at %s: %s", pub_path, exc)
+        return ""
+
+    # Private key exists but public key file is missing — derive it.
+    try:
+        with open(priv_path, "rb") as f:
+            priv_bytes = f.read()
+        priv = load_pem_private_key(priv_bytes, password=None)
+        pub_text = priv.public_key().public_bytes(
+            encoding=Encoding.OpenSSH,
+            format=PublicFormat.OpenSSH,
+        ).decode().strip()
+        try:
+            with open(pub_path, "w") as f:
+                f.write(pub_text + "\n")
+        except OSError:
+            pass
+        return pub_text
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        logger.warning("Could not load existing deploy private key at %s: %s", priv_path, exc)
+
+    # Generate a fresh keypair and persist it.
+    private_key_text, public_key_text = generate_ssh_keypair(comment="callis@deploy")
+    public_key_text = public_key_text.strip()
+    try:
+        os.makedirs(os.path.dirname(priv_path), exist_ok=True)
+    except (OSError, ValueError) as exc:
+        logger.warning("Could not create directory for deploy key at %s: %s", priv_path, exc)
+    try:
+        fd = os.open(priv_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(private_key_text)
+    except FileExistsError:
+        # Another concurrent call beat us — recurse once to pick up the new key.
+        return get_server_deploy_public_key()
+    except (PermissionError, OSError) as exc:
+        logger.warning(
+            "Could not persist server deploy key to %s: %s. "
+            "A new key will be generated on next restart.",
+            priv_path,
+            exc,
+        )
+        return public_key_text
+    try:
+        with open(pub_path, "w") as f:
+            f.write(public_key_text + "\n")
+    except (PermissionError, OSError) as exc:
+        logger.warning("Could not write deploy public key to %s: %s", pub_path, exc)
+    logger.info("Generated Callis server deploy key and saved to %s", priv_path)
+    return public_key_text
 
 
 # ---------------------------------------------------------------------------

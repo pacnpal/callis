@@ -38,6 +38,7 @@
 
 <div class="page-header">
   <h3>SSH Keys</h3>
+  <button type="button" class="outline btn-sm" data-dialog-open="generate-key-dialog">Generate Key</button>
 </div>
 
 <form method="post" action="/users/{{ target_user.id }}/keys"
@@ -107,4 +108,25 @@
 <div class="ssh-config-section">
   {% include "partials/ssh_config.html" %}
 </div>
+
+<dialog id="generate-key-dialog">
+  <article>
+    <header>
+      <button aria-label="Close" data-dialog-close></button>
+      <h3>Generate SSH Key</h3>
+    </header>
+    <div id="generate-key-body">
+      <p class="text-small text-muted">A new Ed25519 key pair will be generated. You will be shown the private key <strong>once</strong> — save it before closing this dialog.</p>
+      <form method="post" action="/users/{{ target_user.id }}/keys/generate"
+            hx-post="/users/{{ target_user.id }}/keys/generate"
+            hx-target="#generate-key-body" hx-swap="innerHTML">
+        <label for="gen-label">Key Label</label>
+        <input type="text" id="gen-label" name="label" placeholder="e.g. Work Laptop"
+               aria-describedby="gen_label_help">
+        <p id="gen_label_help" class="helper-text">A name to identify this key (e.g. the device it belongs to). Leave blank for a default name.</p>
+        <button type="submit">Generate Key</button>
+      </form>
+    </div>
+  </article>
+</dialog>
 {% endblock %}
