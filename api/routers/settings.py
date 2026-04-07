@@ -69,6 +69,7 @@ async def save_settings(
     pending_deletes: list[str] = []      # keys whose DB rows should be removed
     pending_upserts: dict[str, str] = {} # key -> validated new_value to write
     changes: dict[str, dict] = {}
+    reverted_to: dict[str, str] = {}     # key -> effective value after revert (for form render)
 
     for key, meta in CONFIGURABLE_SETTINGS.items():
         if meta.get("readonly"):
@@ -77,14 +78,15 @@ async def save_settings(
         submitted = form.get(key, "")
         raw = submitted if meta["type"] == "text" else submitted.strip()
 
-        # For str-type settings, an empty submission removes the DB override
+        # For string-like settings, an empty submission removes the DB override
         # so the env-var / compiled default takes effect again.
-        if meta["type"] == "str" and not raw:
+        if meta["type"] in {"str", "text"} and not raw:
             if key in existing_map:
                 old_val = str(old_values.get(key, meta["default"]))
                 new_effective = str(get_effective_settings({}).get(key, meta["default"]))
                 changes[key] = {"old": old_val, "new": f"(reverted to: {new_effective})"}
                 pending_deletes.append(key)
+                reverted_to[key] = new_effective
             continue
 
         if not raw and meta["type"] == "int":
@@ -151,17 +153,23 @@ async def save_settings(
         )
 
     await db.flush()
-    await db.commit()
     invalidate_db_settings_cache()
-    # Repopulate cache so instance_name() and other sync readers reflect new values
-    fresh_db_settings = await load_db_settings()
+
+    # Build the post-save view in memory from the validated changes so we
+    # don't need a redundant commit + new DB round-trip.  The Depends(get_db)
+    # dependency commits the transaction at the end of the request.
+    current_values = dict(old_values)
+    for key in pending_deletes:
+        current_values[key] = reverted_to[key]
+    for key, new_value in pending_upserts.items():
+        current_values[key] = new_value
 
     return templates.TemplateResponse(
         request,
         "settings.html",
         context={
             "user": user,
-            "groups": _grouped_settings(get_effective_settings(fresh_db_settings)),
+            "groups": _grouped_settings(current_values),
             "success": "Settings saved." if changes else "No changes detected.",
         },
     )

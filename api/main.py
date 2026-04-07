@@ -196,6 +196,11 @@ async def _init_db():
 
 
 async def run_servers():
+    # Initialize DB and preload settings cache before either server starts
+    # so internal_app (which has no lifespan) can serve requests immediately.
+    await _init_db()
+    await load_db_settings()
+
     settings = get_settings()
     log_level = settings.LOG_LEVEL.lower()
 
