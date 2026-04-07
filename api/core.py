@@ -534,9 +534,23 @@ def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str |
     """Load the deploy private key from *priv_path* and return its OpenSSH public key.
 
     Writes the derived public key to *pub_path* as a side-effect when possible.
-    Returns ``None`` (and logs a warning) if the file is missing or unreadable.
+    Returns ``None`` if the file is missing; returns ``None`` and logs a warning
+    if the file is unreadable or has insecure permissions that cannot be tightened.
     """
     try:
+        st = os.stat(priv_path)
+        mode = _stat.S_IMODE(st.st_mode)
+        if mode & 0o077:
+            try:
+                os.chmod(priv_path, 0o600)
+            except OSError as exc:
+                logger.warning(
+                    "Deploy private key at %s has insecure permissions %s and could not be tightened: %s",
+                    priv_path,
+                    oct(mode),
+                    exc,
+                )
+                return None
         with open(priv_path, "rb") as f:
             priv_bytes = f.read()
         priv = load_ssh_private_key(priv_bytes, password=None)

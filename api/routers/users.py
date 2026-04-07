@@ -1,3 +1,4 @@
+import logging
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 
@@ -13,6 +14,7 @@ from dependencies import require_admin_or_self, require_role
 from models import AuditAction, SSHKey, User, UserRole
 
 router = APIRouter()
+logger = logging.getLogger("callis")
 templates = Jinja2Templates(directory="templates")
 register_template_filters(templates)
 
@@ -433,7 +435,8 @@ async def generate_key(
     try:
         key_info = parse_ssh_public_key(public_key_text)
     except ValueError as e:
-        raise HTTPException(status_code=500, detail=f"Key generation error: {e}")
+        logger.error("Key generation internal error for user %s: %s", user_id, e)
+        raise HTTPException(status_code=500, detail="Key generation failed")
 
     new_key = SSHKey(
         user_id=user_id,
