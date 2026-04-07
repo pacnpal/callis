@@ -183,8 +183,14 @@ async def generic_exception_handler(request: Request, exc: Exception):
 # Entrypoint: run both apps
 # ---------------------------------------------------------------------------
 
+_db_initialized: bool = False
+
+
 async def _init_db():
-    """Run DB initialization (table creation) before servers start."""
+    """Run DB initialization (table creation) — idempotent; no-op if already done."""
+    global _db_initialized
+    if _db_initialized:
+        return
     settings = get_settings()
     logging.basicConfig(
         level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -193,6 +199,7 @@ async def _init_db():
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    _db_initialized = True
 
 
 async def run_servers():

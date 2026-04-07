@@ -90,7 +90,15 @@ async def save_settings(
             continue
 
         if not raw and meta["type"] == "int":
-            continue  # skip empty numeric fields
+            # Empty numeric submission: remove DB override to revert to env/default,
+            # same semantics as clearing a string field.
+            if key in existing_map:
+                old_val = str(old_values.get(key, meta["default"]))
+                new_effective = str(get_effective_settings({}).get(key, meta["default"]))
+                changes[key] = {"old": old_val, "new": f"(reverted to: {new_effective})"}
+                pending_deletes.append(key)
+                reverted_to[key] = new_effective
+            continue
 
         # Validate and convert
         if meta["type"] == "int":

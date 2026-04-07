@@ -532,7 +532,7 @@ CONFIGURABLE_SETTINGS: dict[str, dict] = OrderedDict([
 ])
 
 
-# In-memory cache for DB settings; cleared on save.
+# In-memory cache for DB settings; updated in place on save.
 _db_settings_cache: dict[str, str] | None = None
 
 
