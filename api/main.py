@@ -144,8 +144,7 @@ CALLIS_DIR="$HOME/.config/callis"
 SCRIPT_URL={shlex.quote(script_url)}
 
 echo "Installing Callis CLI..."
-mkdir -p "$CALLIS_DIR"
-chmod 700 "$CALLIS_DIR"
+mkdir -m 700 -p "$CALLIS_DIR"
 curl -fsSL "$SCRIPT_URL" -o "$CALLIS_DIR/callis.sh"
 chmod 644 "$CALLIS_DIR/callis.sh"
 

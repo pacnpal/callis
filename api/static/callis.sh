@@ -47,8 +47,7 @@ USAGE
 }
 
 _callis_setup() {
-    mkdir -p "$CALLIS_CONFIG_DIR"
-    chmod 700 "$CALLIS_CONFIG_DIR"
+    mkdir -m 700 -p "$CALLIS_CONFIG_DIR"
 
     printf "Callis server hostname: "
     read -r CALLIS_HOST
