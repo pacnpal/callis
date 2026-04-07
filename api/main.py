@@ -158,8 +158,7 @@ async def dashboard(
 # CLI installer — curl http://callis:8080/install.sh | sh
 @app.get("/install.sh")
 async def install_script():
-    _settings = get_settings()
-    base_url = _settings.BASE_URL.rstrip("/")
+    base_url = (await get_runtime_setting("base_url") or "http://localhost:8080").rstrip("/")
     if not base_url.startswith(("http://", "https://")):
         return PlainTextResponse(
             "Installer unavailable: BASE_URL is not configured correctly.\n",

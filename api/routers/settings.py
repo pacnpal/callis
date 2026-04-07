@@ -34,6 +34,12 @@ def _grouped_settings(current_values: dict) -> OrderedDict:
     return groups
 
 
+def _installer_url(current_values: dict) -> str:
+    """Return the CLI installer URL based on the effective base_url setting."""
+    base_url = str(current_values.get("base_url", "http://localhost:8080")).rstrip("/")
+    return f"{base_url}/install.sh"
+
+
 @router.get("/settings")
 async def settings_page(
     request: Request,
@@ -46,7 +52,7 @@ async def settings_page(
     return templates.TemplateResponse(
         request,
         "settings.html",
-        context={"user": user, "groups": groups},
+        context={"user": user, "groups": groups, "installer_url": _installer_url(current)},
     )
 
 
@@ -149,6 +155,7 @@ async def save_settings(
             context={
                 "user": user,
                 "groups": _grouped_settings(old_values),
+                "installer_url": _installer_url(old_values),
                 "error": "; ".join(validation_errors),
             },
             status_code=400,
@@ -200,6 +207,7 @@ async def save_settings(
         context={
             "user": user,
             "groups": _grouped_settings(current_values),
+            "installer_url": _installer_url(current_values),
             "success": "Settings saved." if changes else "No changes detected.",
         },
     )

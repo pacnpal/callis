@@ -48,4 +48,13 @@
 
   <button type="submit">Save Changes</button>
 </form>
+
+<article>
+  <header><strong>CLI Installer</strong></header>
+  <p class="helper-text">Share this command with users to install the Callis CLI. The URL reflects the <strong>Base URL</strong> setting above.</p>
+  <div class="ssh-config-actions">
+    <button type="button" class="outline btn-sm" data-copy-trigger="settings-installer">Copy</button>
+  </div>
+  <pre class="ssh-config" data-copy-target="settings-installer">curl -fsSL {{ installer_url }} | sh</pre>
+</article>
 {% endblock %}
