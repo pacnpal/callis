@@ -593,7 +593,40 @@ def get_effective_settings(db_settings: dict[str, str]) -> dict[str, Any]:
 
 
 async def get_runtime_setting(key: str) -> Any:
-    """Get a single runtime setting value (DB override or default)."""
+    """Get a single runtime setting value using a fast single-key path.
+
+    Reads from the in-memory cache (populated by load_db_settings at startup
+    and refreshed after each settings save) and only resolves the requested
+    key, avoiding a full iteration over CONFIGURABLE_SETTINGS on every call.
+    """
+    meta = CONFIGURABLE_SETTINGS.get(key)
+    if meta is None:
+        return None
+
     db_settings = await load_db_settings()
-    effective = get_effective_settings(db_settings)
-    return effective.get(key)
+
+    if key in db_settings:
+        raw = db_settings[key]
+        if meta["type"] == "int":
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Ignoring invalid integer DB override for setting '%s': %r",
+                    key,
+                    raw,
+                )
+        else:
+            return raw
+
+    # Fall back to env-var attribute or compiled default
+    env = get_settings()
+    env_attr = key.upper()
+    if hasattr(env, env_attr):
+        val = getattr(env, env_attr)
+        if key == "session_idle_timeout":
+            val = val // 60
+        elif key == "session_max_lifetime":
+            val = val // 60
+        return val
+    return meta["default"]

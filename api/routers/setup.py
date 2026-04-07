@@ -10,7 +10,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from core import (
-    CONFIGURABLE_SETTINGS,
     RESERVED_USERNAMES,
     USERNAME_RE,
     create_jwt,
