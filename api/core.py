@@ -537,7 +537,13 @@ _db_settings_cache: dict[str, str] | None = None
 
 
 async def load_db_settings() -> dict[str, str]:
-    """Load all settings from the database, using cache if available."""
+    """Load all settings from the database, using cache if available.
+
+    Note: this is an in-process cache. In multi-worker deployments, settings
+    saved by one worker are not propagated to other workers until their cache
+    is next populated (i.e., after a restart or a cache miss). For single-
+    worker/container deployments (the default Callis setup) this is correct.
+    """
     global _db_settings_cache
     if _db_settings_cache is not None:
         return _db_settings_cache

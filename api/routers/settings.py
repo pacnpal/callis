@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.templating import Jinja2Templates
@@ -120,6 +121,19 @@ async def save_settings(
                 continue
             new_value = raw
         else:
+            # Validate URL-typed settings require a scheme and hostname.
+            if key == "base_url":
+                if not raw.startswith(("http://", "https://")):
+                    validation_errors.append(
+                        f"'{meta['label']}' must start with http:// or https://"
+                    )
+                    continue
+                parsed = urlparse(raw)
+                if not parsed.hostname:
+                    validation_errors.append(
+                        f"'{meta['label']}' must include a valid hostname"
+                    )
+                    continue
             new_value = raw
 
         old_val = str(old_values.get(key, meta["default"]))
@@ -161,6 +175,11 @@ async def save_settings(
         )
 
     await db.flush()
+    # Commit the transaction first so the cache is only updated after the
+    # data has actually persisted.  If the commit raises, the exception
+    # propagates to get_db()'s teardown which handles rollback; the cache
+    # update below is never reached, so it never reflects unpersisted values.
+    await db.commit()
     # Update the in-memory cache directly with the committed mutations so that:
     # (a) this response's template render sees the new instance_name / values,
     # (b) there is no window where the cache is None and a concurrent request
