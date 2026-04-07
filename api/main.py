@@ -186,7 +186,7 @@ echo ""
 echo "Done! Run '$SOURCE_LINE' or open a new shell, then:"
 echo "  callis setup"
 echo "  callis list"
-echo "  callis <host-alias>"
+echo "  callis <tag>"
 '''
     return Response(content=installer, media_type="text/plain")
 

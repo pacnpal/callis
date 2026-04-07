@@ -125,8 +125,8 @@ _callis_connect() {
     shift
 
     case "$TAG" in
-        ''|*[!a-z0-9-]*|-*)
-            echo "Error: invalid host tag — tags may only contain lowercase letters, digits, and hyphens" >&2
+        ''|*[!a-z0-9-]*|-*|*-|*--*)
+            echo "Error: invalid host tag — tags must use lowercase letters and digits separated by single hyphens, with no leading or trailing hyphen" >&2
             return 1 ;;
     esac
 
