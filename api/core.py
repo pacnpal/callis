@@ -557,9 +557,6 @@ def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str |
         return None
 
 
-_deploy_public_key_cache: str | None = None
-
-
 def get_server_deploy_public_key() -> str:
     """Return Callis's server deploy public key, generating it if needed.
 
@@ -610,7 +607,8 @@ def get_server_deploy_public_key() -> str:
         # return empty string rather than a mismatched in-memory key if that fails.
         try:
             with open(pub_path) as f:
-                return f.read().strip()
+                _deploy_public_key_cache = f.read().strip()
+                return _deploy_public_key_cache
         except FileNotFoundError:
             pass
         except OSError as exc:
@@ -621,7 +619,8 @@ def get_server_deploy_public_key() -> str:
 
         derived = _derive_public_key_from_private_file(priv_path, pub_path)
         if derived is not None:
-            return derived
+            _deploy_public_key_cache = derived
+            return _deploy_public_key_cache
 
         logger.warning(
             "Could not recover deploy public key after concurrent creation at %s; "
@@ -632,11 +631,11 @@ def get_server_deploy_public_key() -> str:
     except (PermissionError, OSError) as exc:
         logger.warning(
             "Could not persist server deploy key to %s: %s. "
-            "A new key will be generated on next restart.",
+            "Returning empty string because the generated key is not durable.",
             priv_path,
             exc,
         )
-        return public_key_text
+        return ""
     try:
         with open(pub_path, "w") as f:
             f.write(public_key_text + "\n")
