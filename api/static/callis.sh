@@ -80,15 +80,48 @@ _callis_setup() {
 
     echo "Configuration saved to ${CALLIS_CONFIG_FILE}"
 
-    # Fetch the SSH host key (TOFU — trust on first use) and store it in a
-    # Callis-specific known_hosts file so strict host key checking works.
+    # Fetch the SSH host key, show its fingerprint, and require explicit user
+    # confirmation before trusting it for future connections.
+    KNOWN_HOSTS_FILE="${CALLIS_CONFIG_DIR}/known_hosts"
+    TMP_KNOWN_HOSTS_FILE="${KNOWN_HOSTS_FILE}.tmp.$$"
     printf "Fetching SSH host key from %s:%s...\n" "$CALLIS_HOST" "$CALLIS_PORT"
-    FETCHED=$(ssh-keyscan -p "$CALLIS_PORT" -t ed25519 "$CALLIS_HOST" 2>/dev/null)
+    FETCHED=$(ssh-keyscan -T 10 -p "$CALLIS_PORT" -t ed25519 "$CALLIS_HOST" 2>/dev/null)
     if [ -n "$FETCHED" ]; then
-        printf '%s\n' "$FETCHED" > "${CALLIS_CONFIG_DIR}/known_hosts"
-        chmod 600 "${CALLIS_CONFIG_DIR}/known_hosts"
+        printf '%s\n' "$FETCHED" > "$TMP_KNOWN_HOSTS_FILE"
+        FINGERPRINT=$(ssh-keygen -lf "$TMP_KNOWN_HOSTS_FILE" 2>/dev/null)
+        if [ -z "$FINGERPRINT" ]; then
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            echo "Error: could not compute SSH host key fingerprint for ${CALLIS_HOST}:${CALLIS_PORT}." >&2
+            return 1
+        fi
+
+        echo "Fetched SSH host key fingerprint:"
+        printf '  %s\n' "$FINGERPRINT"
+        echo "Verify this fingerprint with your administrator or another trusted out-of-band source before continuing."
+        printf "Trust and save this host key? Type 'yes' to continue: "
+        read -r TRUST_HOST_KEY
+        if [ "$TRUST_HOST_KEY" != "yes" ]; then
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            echo "Host key was not saved. Setup aborted."
+            return 1
+        fi
+
+        if [ -s "$KNOWN_HOSTS_FILE" ]; then
+            echo "Warning: ${KNOWN_HOSTS_FILE} already exists and will be replaced."
+            printf "Type 'yes' to overwrite the existing Callis host key: "
+            read -r OVERWRITE_KNOWN_HOSTS
+            if [ "$OVERWRITE_KNOWN_HOSTS" != "yes" ]; then
+                rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+                echo "Existing host key was left unchanged. Setup aborted."
+                return 1
+            fi
+        fi
+
+        mv "$TMP_KNOWN_HOSTS_FILE" "$KNOWN_HOSTS_FILE"
+        chmod 600 "$KNOWN_HOSTS_FILE"
         echo "Host key saved."
     else
+        rm -f "$CALLIS_CONFIG_FILE"
         echo "Error: could not fetch SSH host key from ${CALLIS_HOST}:${CALLIS_PORT}." >&2
         echo "Ensure the server is reachable and run 'callis setup' again." >&2
         return 1
@@ -140,6 +173,7 @@ _callis_list() {
     fi
     ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
+        -o GlobalKnownHostsFile=/dev/null \
         -o UserKnownHostsFile="${CALLIS_CONFIG_DIR}/known_hosts" \
         "${CALLIS_USER}@${CALLIS_HOST}" list
 }
@@ -169,6 +203,7 @@ _callis_connect() {
 
     DEST=$(ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
+        -o GlobalKnownHostsFile=/dev/null \
         -o UserKnownHostsFile="${CALLIS_CONFIG_DIR}/known_hosts" \
         "${CALLIS_USER}@${CALLIS_HOST}" "resolve ${TAG}" 2>"$STDERR_TMP")
 
@@ -190,10 +225,11 @@ _callis_connect() {
     TARGET_HOST=$(echo "$DEST" | awk '{print $1}')
     TARGET_PORT=$(echo "$DEST" | awk '{print $2}')
 
-    PROXY_COMMAND="ssh -i \"$CALLIS_KEY\" -p \"$CALLIS_PORT\" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"${CALLIS_CONFIG_DIR}/known_hosts\" -W %h:%p \"${CALLIS_USER}@${CALLIS_HOST}\""
+    PROXY_COMMAND="ssh -i \"$CALLIS_KEY\" -p \"$CALLIS_PORT\" -o BatchMode=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=\"${CALLIS_CONFIG_DIR}/known_hosts\" -W %h:%p \"${CALLIS_USER}@${CALLIS_HOST}\""
 
     ssh -i "$CALLIS_KEY" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
+        -o GlobalKnownHostsFile=/dev/null \
         -o "UserKnownHostsFile=${HOME}/.ssh/known_hosts" \
         -o "ProxyCommand=${PROXY_COMMAND}" \
         -p "$TARGET_PORT" "$@" \
