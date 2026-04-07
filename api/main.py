@@ -143,6 +143,11 @@ async def dashboard(
 async def install_script():
     _settings = get_settings()
     base_url = _settings.BASE_URL.rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        return PlainTextResponse(
+            "Installer unavailable: BASE_URL is not configured correctly.\n",
+            status_code=503,
+        )
     script_url = f"{base_url}/callis.sh"
     installer = f'''#!/bin/sh
 set -e
