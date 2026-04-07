@@ -276,14 +276,28 @@ JWT_ALGORITHM = "HS256"
 def _get_session_max_lifetime_seconds() -> int:
     """Return session max lifetime in seconds, checking DB cache then env."""
     if _db_settings_cache and "session_max_lifetime" in _db_settings_cache:
-        return int(_db_settings_cache["session_max_lifetime"]) * 60
+        raw_value = _db_settings_cache["session_max_lifetime"]
+        try:
+            return int(raw_value) * 60
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid cached setting for session_max_lifetime: %r; falling back to default",
+                raw_value,
+            )
     return get_settings().SESSION_MAX_LIFETIME
 
 
 def _get_session_idle_timeout_seconds() -> int:
     """Return session idle timeout in seconds, checking DB cache then env."""
     if _db_settings_cache and "session_idle_timeout" in _db_settings_cache:
-        return int(_db_settings_cache["session_idle_timeout"]) * 60
+        raw_value = _db_settings_cache["session_idle_timeout"]
+        try:
+            return int(raw_value) * 60
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid cached setting for session_idle_timeout: %r; falling back to default",
+                raw_value,
+            )
     return get_settings().SESSION_IDLE_TIMEOUT
 
 

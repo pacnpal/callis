@@ -90,6 +90,7 @@ table { font-size: 0.9em; }
 .theme-toggle:focus-visible { outline: 2px solid var(--pico-primary); outline-offset: 2px; }
 .theme-toggle svg { display: block; }
 .helper-text { font-size: 0.85em; color: var(--pico-muted-color); margin-top: -0.5rem; margin-bottom: 0.75rem; }
+.motd { white-space: pre-wrap; }
 .getting-started { margin-bottom: 2rem; }
 .getting-started ol { padding-left: 1.25rem; }
 .getting-started li { margin-bottom: 0.5rem; }

@@ -5,6 +5,13 @@
 
 <p class="text-muted">Configure your Callis instance. Most changes apply immediately; session timeouts only affect new sessions, and read-only settings require a restart. Settings override environment variable defaults and persist across restarts.</p>
 
+{% if error %}
+<div class="flash flash-error" role="alert">{{ error }}</div>
+{% endif %}
+{% if success %}
+<div class="flash flash-success" role="status">{{ success }}</div>
+{% endif %}
+
 <form method="post" action="/settings">
   {% for group_name, settings in groups.items() %}
   <article>
