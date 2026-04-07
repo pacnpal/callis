@@ -78,16 +78,24 @@ _callis_setup() {
     } > "$CALLIS_CONFIG_FILE"
     chmod 600 "$CALLIS_CONFIG_FILE"
 
-    echo "Configuration saved to ${CALLIS_CONFIG_FILE}"
+    echo "Configuration written to ${CALLIS_CONFIG_FILE}; verifying SSH host key before setup is finalized."
 
     # Fetch the SSH host key, show its fingerprint, and require explicit user
     # confirmation before trusting it for future connections.
     KNOWN_HOSTS_FILE="${CALLIS_CONFIG_DIR}/known_hosts"
-    TMP_KNOWN_HOSTS_FILE="${KNOWN_HOSTS_FILE}.tmp.$$"
+    TMP_KNOWN_HOSTS_FILE=$(mktemp "${KNOWN_HOSTS_FILE}.tmp.XXXXXX") || {
+        rm -f "$CALLIS_CONFIG_FILE"
+        echo "Error: could not create temporary known_hosts file." >&2
+        return 1
+    }
     printf "Fetching SSH host key from %s:%s...\n" "$CALLIS_HOST" "$CALLIS_PORT"
     FETCHED=$(ssh-keyscan -T 10 -p "$CALLIS_PORT" -t ed25519 "$CALLIS_HOST" 2>/dev/null)
     if [ -n "$FETCHED" ]; then
-        printf '%s\n' "$FETCHED" > "$TMP_KNOWN_HOSTS_FILE"
+        if ! printf '%s\n' "$FETCHED" > "$TMP_KNOWN_HOSTS_FILE"; then
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            echo "Error: could not write SSH host key to temporary file." >&2
+            return 1
+        fi
         FINGERPRINT=$(ssh-keygen -lf "$TMP_KNOWN_HOSTS_FILE" 2>/dev/null)
         if [ -z "$FINGERPRINT" ]; then
             rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
@@ -117,11 +125,19 @@ _callis_setup() {
             fi
         fi
 
-        mv "$TMP_KNOWN_HOSTS_FILE" "$KNOWN_HOSTS_FILE"
-        chmod 600 "$KNOWN_HOSTS_FILE"
-        echo "Host key saved."
+        if ! mv "$TMP_KNOWN_HOSTS_FILE" "$KNOWN_HOSTS_FILE"; then
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            echo "Error: could not save SSH host key to ${KNOWN_HOSTS_FILE}." >&2
+            return 1
+        fi
+        if ! chmod 600 "$KNOWN_HOSTS_FILE"; then
+            rm -f "$KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            echo "Error: could not set permissions on ${KNOWN_HOSTS_FILE}." >&2
+            return 1
+        fi
+        echo "Setup complete. Configuration and host key saved."
     else
-        rm -f "$CALLIS_CONFIG_FILE"
+        rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
         echo "Error: could not fetch SSH host key from ${CALLIS_HOST}:${CALLIS_PORT}." >&2
         echo "Ensure the server is reachable and run 'callis setup' again." >&2
         return 1
@@ -163,6 +179,13 @@ _callis_has_known_hosts_entries() {
     known_hosts_file="$1"
     [ -s "$known_hosts_file" ] || return 1
     grep -Eq '^[[:space:]]*[^#[:space:]]' "$known_hosts_file"
+}
+
+# POSIX single-quote escaping: wraps the argument in single quotes and escapes
+# any embedded single quotes so the result is safe for shell evaluation (e.g.,
+# inside a ProxyCommand string that OpenSSH passes to a shell).
+_callis_sq() {
+    printf '%s' "$1" | sed "s/'/'\\''/g; s/^/'/; s/\$/'/"
 }
 
 _callis_list() {
@@ -225,7 +248,15 @@ _callis_connect() {
     TARGET_HOST=$(echo "$DEST" | awk '{print $1}')
     TARGET_PORT=$(echo "$DEST" | awk '{print $2}')
 
-    PROXY_COMMAND="ssh -i \"$CALLIS_KEY\" -p \"$CALLIS_PORT\" -o BatchMode=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=\"${CALLIS_CONFIG_DIR}/known_hosts\" -W %h:%p \"${CALLIS_USER}@${CALLIS_HOST}\""
+    # Build ProxyCommand using POSIX single-quote escaping so user-controlled
+    # values (key path, port, username, hostname) cannot inject shell metacharacters
+    # when OpenSSH evaluates the command string.
+    _escaped_key=$(_callis_sq "$CALLIS_KEY")
+    _escaped_port=$(_callis_sq "$CALLIS_PORT")
+    _escaped_user=$(_callis_sq "$CALLIS_USER")
+    _escaped_host=$(_callis_sq "$CALLIS_HOST")
+    _escaped_known=$(_callis_sq "${CALLIS_CONFIG_DIR}/known_hosts")
+    PROXY_COMMAND="ssh -i ${_escaped_key} -p ${_escaped_port} -o BatchMode=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=${_escaped_known} -W %h:%p ${_escaped_user}@${_escaped_host}"
 
     ssh -i "$CALLIS_KEY" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
