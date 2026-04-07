@@ -185,7 +185,7 @@ _callis_connect() {
 
     ssh -i "$CALLIS_KEY" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
-        -o UserKnownHostsFile="${CALLIS_CONFIG_DIR}/known_hosts" \
+        -o "UserKnownHostsFile=${CALLIS_CONFIG_DIR}/known_hosts ${HOME}/.ssh/known_hosts" \
         -J "${CALLIS_USER}@${CALLIS_HOST}:${CALLIS_PORT}" \
         -p "$TARGET_PORT" "$@" \
         "${CALLIS_USER}@${TARGET_HOST}"
