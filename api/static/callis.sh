@@ -110,7 +110,7 @@ _callis_setup() {
         read -r TRUST_HOST_KEY
         if [ "$TRUST_HOST_KEY" != "yes" ]; then
             rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
-            echo "Host key was not saved. Setup aborted."
+            echo "Host key was not saved. Setup aborted." >&2
             return 1
         fi
 
@@ -120,7 +120,7 @@ _callis_setup() {
             read -r OVERWRITE_KNOWN_HOSTS
             if [ "$OVERWRITE_KNOWN_HOSTS" != "yes" ]; then
                 rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
-                echo "Existing host key was left unchanged. Setup aborted."
+                echo "Existing host key was left unchanged. Setup aborted." >&2
                 return 1
             fi
         fi
@@ -248,15 +248,33 @@ _callis_connect() {
     TARGET_HOST=$(echo "$DEST" | awk '{print $1}')
     TARGET_PORT=$(echo "$DEST" | awk '{print $2}')
 
+    # Validate bastion-supplied TARGET_HOST and TARGET_PORT to prevent shell
+    # injection via OpenSSH's %h/%p substitution in ProxyCommand.
+    case "$TARGET_HOST" in
+        ''|*[!A-Za-z0-9._:-]*)
+            echo "Error: bastion returned an invalid target host" >&2
+            return 1 ;;
+    esac
+    case "$TARGET_PORT" in
+        ''|*[!0-9]*)
+            echo "Error: bastion returned an invalid target port" >&2
+            return 1 ;;
+    esac
+    if [ "$TARGET_PORT" -lt 1 ] || [ "$TARGET_PORT" -gt 65535 ]; then
+        echo "Error: bastion returned an invalid target port" >&2
+        return 1
+    fi
+
     # Build ProxyCommand using POSIX single-quote escaping so user-controlled
     # values (key path, port, username, hostname) cannot inject shell metacharacters
-    # when OpenSSH evaluates the command string.
+    # when OpenSSH evaluates the command string. Quote %h:%p as a single shell
+    # argument so OpenSSH substitution cannot introduce shell syntax.
     _escaped_key=$(_callis_sq "$CALLIS_KEY")
     _escaped_port=$(_callis_sq "$CALLIS_PORT")
     _escaped_user=$(_callis_sq "$CALLIS_USER")
     _escaped_host=$(_callis_sq "$CALLIS_HOST")
     _escaped_known=$(_callis_sq "${CALLIS_CONFIG_DIR}/known_hosts")
-    PROXY_COMMAND="ssh -i ${_escaped_key} -p ${_escaped_port} -o BatchMode=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=${_escaped_known} -W %h:%p ${_escaped_user}@${_escaped_host}"
+    PROXY_COMMAND="ssh -i ${_escaped_key} -p ${_escaped_port} -o BatchMode=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=${_escaped_known} -W '%h:%p' ${_escaped_user}@${_escaped_host}"
 
     ssh -i "$CALLIS_KEY" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
