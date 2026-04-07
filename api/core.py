@@ -607,8 +607,7 @@ def get_server_deploy_public_key() -> str:
         # return empty string rather than a mismatched in-memory key if that fails.
         try:
             with open(pub_path) as f:
-                _deploy_public_key_cache = f.read().strip()
-                return _deploy_public_key_cache
+                return f.read().strip()
         except FileNotFoundError:
             pass
         except OSError as exc:
@@ -619,7 +618,6 @@ def get_server_deploy_public_key() -> str:
 
         derived = _derive_public_key_from_private_file(priv_path, pub_path)
         if derived is not None:
-            _deploy_public_key_cache = derived
             return derived
 
         logger.warning(
