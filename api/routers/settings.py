@@ -36,7 +36,14 @@ def _grouped_settings(current_values: dict) -> OrderedDict:
 
 def _installer_url(current_values: dict) -> str:
     """Return the CLI installer URL based on the effective base_url setting."""
-    base_url = str(current_values.get("base_url", "http://localhost:8080")).rstrip("/")
+    default_base_url = "http://localhost:8080"
+    configured_base_url = str(current_values.get("base_url", default_base_url))
+    parsed_base_url = urlparse(configured_base_url)
+
+    if parsed_base_url.scheme and parsed_base_url.netloc:
+        base_url = f"{parsed_base_url.scheme}://{parsed_base_url.netloc}"
+    else:
+        base_url = default_base_url
     return f"{base_url}/install.sh"
 
 
