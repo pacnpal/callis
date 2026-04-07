@@ -14,6 +14,10 @@
   background: var(--pico-ins-color);
   color: #fff;
 }
+.flash-info {
+  background: var(--pico-primary-background);
+  color: var(--pico-primary-inverse);
+}
 nav .brand {
   font-weight: bold;
 }
@@ -86,10 +90,12 @@ table { font-size: 0.9em; }
 .theme-toggle:focus-visible { outline: 2px solid var(--pico-primary); outline-offset: 2px; }
 .theme-toggle svg { display: block; }
 .helper-text { font-size: 0.85em; color: var(--pico-muted-color); margin-top: -0.5rem; margin-bottom: 0.75rem; }
+.motd { white-space: pre-wrap; }
 .getting-started { margin-bottom: 2rem; }
 .getting-started ol { padding-left: 1.25rem; }
 .getting-started li { margin-bottom: 0.5rem; }
 .alias-col { font-family: var(--pico-font-family-monospace, monospace); font-size: 0.85em; }
+.setting-row { margin-bottom: 0.5rem; }
 .detail-key { font-weight: 600; text-transform: capitalize; }
 .badge-action { text-transform: capitalize; }
 /* Auth events */

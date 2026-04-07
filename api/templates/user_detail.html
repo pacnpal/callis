@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ target_user.display_name }} - Callis{% endblock %}
+{% block title %}{{ target_user.display_name }} - {{ instance_name() }}{% endblock %}
 {% block content %}
 <h2>{{ target_user.display_name }}</h2>
 

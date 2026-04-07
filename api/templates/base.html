@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Callis{% endblock %}</title>
+  <title>{% block title %}{{ instance_name() }}{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/theme.js"></script>
@@ -14,7 +14,7 @@
 <body>
   <nav class="container-fluid">
     <ul>
-      <li><a href="/dashboard" class="brand">Callis</a></li>
+      <li><a href="/dashboard" class="brand">{{ instance_name() }}</a></li>
     </ul>
     <ul>
       {% if user %}
@@ -26,6 +26,9 @@
         <li><a href="/users/{{ user.id }}">My Profile</a></li>
         <li><a href="/hosts">Hosts</a></li>
         <li><a href="/audit">Audit Log</a></li>
+        {% if user.role.value == "admin" %}
+          <li><a href="/settings">Settings</a></li>
+        {% endif %}
         {% endif %}
         <li>
           <form method="post" action="/logout" class="nav-form">

@@ -6,11 +6,13 @@ import re
 import secrets
 import stat as _stat
 import struct
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
 import pyotp
+from sqlalchemy import select
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -22,7 +24,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from models import AuditAction, AuditLog
+from models import AuditAction, AuditLog, Setting
 
 logger = logging.getLogger("callis")
 
@@ -243,10 +245,19 @@ RESERVED_USERNAMES = frozenset({
 })
 
 
+def _instance_name() -> str:
+    """Return the current instance name (DB override or default)."""
+    if _db_settings_cache is not None and "instance_name" in _db_settings_cache:
+        return _db_settings_cache["instance_name"]
+    return CONFIGURABLE_SETTINGS["instance_name"]["default"]
+
+
 def register_template_filters(jinja_templates) -> None:
     """Register custom Jinja2 filters and globals on a Templates instance."""
     jinja_templates.env.filters["slugify"] = slugify
     jinja_templates.env.globals["app_version"] = get_app_version()
+    # Callable so it picks up DB changes at render time
+    jinja_templates.env.globals["instance_name"] = _instance_name
 
 
 # ---------------------------------------------------------------------------
@@ -263,10 +274,38 @@ limiter = Limiter(key_func=get_remote_address)
 JWT_ALGORITHM = "HS256"
 
 
+def _get_session_max_lifetime_seconds() -> int:
+    """Return session max lifetime in seconds, checking DB cache then env."""
+    if _db_settings_cache and "session_max_lifetime" in _db_settings_cache:
+        raw_value = _db_settings_cache["session_max_lifetime"]
+        try:
+            return int(raw_value) * 60
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid cached setting for session_max_lifetime: %r; falling back to default",
+                raw_value,
+            )
+    return get_settings().SESSION_MAX_LIFETIME
+
+
+def _get_session_idle_timeout_seconds() -> int:
+    """Return session idle timeout in seconds, checking DB cache then env."""
+    if _db_settings_cache and "session_idle_timeout" in _db_settings_cache:
+        raw_value = _db_settings_cache["session_idle_timeout"]
+        try:
+            return int(raw_value) * 60
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid cached setting for session_idle_timeout: %r; falling back to default",
+                raw_value,
+            )
+    return get_settings().SESSION_IDLE_TIMEOUT
+
+
 def create_jwt(user_id: str) -> str:
     settings = get_settings()
     issued_at = datetime.now(timezone.utc)
-    expires_at = issued_at + timedelta(seconds=settings.SESSION_MAX_LIFETIME)
+    expires_at = issued_at + timedelta(seconds=_get_session_max_lifetime_seconds())
     payload = {
         "sub": user_id,
         "iat": int(issued_at.timestamp()),
@@ -285,7 +324,7 @@ def decode_jwt(token: str) -> dict | None:
         if last_activity_str:
             last_activity = datetime.fromisoformat(last_activity_str)
             idle = (datetime.now(timezone.utc) - last_activity).total_seconds()
-            if idle > settings.SESSION_IDLE_TIMEOUT:
+            if idle > _get_session_idle_timeout_seconds():
                 return None
         return payload
     except (JWTError, ValueError, TypeError):
@@ -472,3 +511,154 @@ async def write_audit_log(
     )
     db.add(entry)
     await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Runtime-configurable settings (DB-backed, env vars as fallback)
+# ---------------------------------------------------------------------------
+
+CONFIGURABLE_SETTINGS: dict[str, dict] = OrderedDict([
+    # -- Branding --
+    ("instance_name",        {"type": "str",    "default": "Callis",              "label": "Instance Name",                "group": "Branding",  "help": "Displayed in the navigation bar and page titles."}),
+    ("motd",                 {"type": "text",   "default": "",                    "label": "Login Banner Message",         "group": "Branding",  "help": "Shown on the login page. Supports plain text."}),
+    # -- Security --
+    ("session_idle_timeout", {"type": "int",    "default": 30,                    "label": "Session Idle Timeout (min)",   "group": "Security",  "help": "Minutes of inactivity before a session expires.", "min": 5, "max": 1440}),
+    ("session_max_lifetime", {"type": "int",    "default": 480,                   "label": "Session Max Lifetime (min)",   "group": "Security",  "help": "Maximum session duration regardless of activity.", "min": 15, "max": 10080}),
+    ("max_keys_per_user",    {"type": "int",    "default": 5,                     "label": "Max SSH Keys Per User",        "group": "Security",  "help": "Maximum number of active SSH keys a user can have.", "min": 1, "max": 50}),
+    ("password_min_length",  {"type": "int",    "default": 8,                     "label": "Minimum Password Length",      "group": "Security",  "help": "Minimum characters required for new passwords.", "min": 8, "max": 128}),
+    # -- General --
+    ("base_url",             {"type": "str",    "default": "http://localhost:8080","label": "Base URL",                     "group": "General",   "help": "Public URL of this Callis instance. Used in CLI installer and SSH config."}),
+    ("ssh_port",             {"type": "int",    "default": 2222,                  "label": "SSH Port",                     "group": "General",   "help": "Configured at container level. Displayed here for reference.", "readonly": True}),
+    ("log_level",            {"type": "choice", "default": "info",                "label": "Log Level",                    "group": "General",   "help": "Server log verbosity. Requires restart to take effect.", "choices": ["debug", "info", "warning", "error"], "readonly": True}),
+])
+
+
+# In-memory cache for DB settings; updated in place on save.
+_db_settings_cache: dict[str, str] | None = None
+
+
+async def load_db_settings() -> dict[str, str]:
+    """Load all settings from the database, using cache if available.
+
+    Note: this is an in-process cache. In multi-worker deployments, settings
+    saved by one worker are not propagated to other workers until their cache
+    is next populated (i.e., after a restart or a cache miss). For single-
+    worker/container deployments (the default Callis setup) this is correct.
+    """
+    global _db_settings_cache
+    if _db_settings_cache is not None:
+        return _db_settings_cache
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(select(Setting))
+        rows = result.scalars().all()
+    _db_settings_cache = {row.key: row.value for row in rows}
+    return _db_settings_cache
+
+
+def invalidate_db_settings_cache() -> None:
+    global _db_settings_cache
+    _db_settings_cache = None
+
+
+def update_db_settings_cache(
+    upserts: dict[str, str],
+    deletes: list[str],
+) -> None:
+    """Apply committed save mutations directly to the in-memory cache.
+
+    Called after db.commit() in save_settings() so that the post-save
+    template render (and any concurrent requests) see the new values
+    immediately, while also ensuring the cache is never repopulated from
+    stale pre-commit DB state during the save.
+    """
+    global _db_settings_cache
+    if _db_settings_cache is None:
+        # Cache was invalidated before save completed; next load_db_settings()
+        # call will repopulate from the committed DB state, so this is safe.
+        logger.debug("update_db_settings_cache called with empty cache; skipping in-place update")
+        return
+    for key in deletes:
+        _db_settings_cache.pop(key, None)
+    _db_settings_cache.update(upserts)
+
+
+def get_effective_settings(db_settings: dict[str, str]) -> dict[str, Any]:
+    """Merge DB overrides on top of env-var / default values."""
+    env = get_settings()
+    result: dict[str, Any] = {}
+    for key, meta in CONFIGURABLE_SETTINGS.items():
+        # Never apply DB overrides to read-only settings (configured at container
+        # level via env vars; the DB row, if it exists, is ignored for correctness).
+        use_db_value = not meta.get("readonly") and key in db_settings
+        if use_db_value:
+            raw = db_settings[key]
+            if meta["type"] == "int":
+                try:
+                    result[key] = int(raw)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Ignoring invalid integer DB override for setting '%s': %r",
+                        key,
+                        raw,
+                    )
+                    use_db_value = False
+            else:
+                result[key] = raw
+
+        if not use_db_value:
+            # Fall back to env-var-based Settings object if it has this attr
+            env_attr = key.upper()
+            if hasattr(env, env_attr):
+                val = getattr(env, env_attr)
+                # Convert seconds to minutes for the UI fields
+                if key == "session_idle_timeout":
+                    val = val // 60
+                elif key == "session_max_lifetime":
+                    val = val // 60
+                result[key] = val
+            else:
+                result[key] = meta["default"]
+    return result
+
+
+async def get_runtime_setting(key: str) -> Any:
+    """Get a single runtime setting value using a fast single-key path.
+
+    Reads from the in-memory cache (populated by load_db_settings at startup
+    and updated in-place after each settings save via update_db_settings_cache)
+    and only resolves the requested key, avoiding a full iteration over
+    CONFIGURABLE_SETTINGS on every call.  Read-only settings always return
+    the env-var / compiled default regardless of any DB row.
+    """
+    meta = CONFIGURABLE_SETTINGS.get(key)
+    if meta is None:
+        return None
+
+    db_settings = await load_db_settings()
+
+    if not meta.get("readonly") and key in db_settings:
+        raw = db_settings[key]
+        if meta["type"] == "int":
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Ignoring invalid integer DB override for setting '%s': %r",
+                    key,
+                    raw,
+                )
+        else:
+            return raw
+
+    # Fall back to env-var attribute or compiled default
+    env = get_settings()
+    env_attr = key.upper()
+    if hasattr(env, env_attr):
+        val = getattr(env, env_attr)
+        if key == "session_idle_timeout":
+            val = val // 60
+        elif key == "session_max_lifetime":
+            val = val // 60
+        return val
+    return meta["default"]

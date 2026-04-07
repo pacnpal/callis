@@ -15,6 +15,7 @@ from core import (
     encrypt_totp_secret,
     generate_totp_secret,
     get_db,
+    get_runtime_setting,
     get_settings,
     get_totp_uri,
     hash_password,
@@ -40,7 +41,8 @@ async def login_page(request: Request):
     user = getattr(request.state, "user", None)
     if user and user.totp_enrolled:
         return RedirectResponse(url="/dashboard", status_code=303)
-    return templates.TemplateResponse(request, "login.html")
+    motd = await get_runtime_setting("motd")
+    return templates.TemplateResponse(request, "login.html", context={"motd": motd})
 
 
 @router.post("/login")
@@ -73,7 +75,7 @@ async def login_submit(
         return templates.TemplateResponse(
             request,
             "login.html",
-            context={"error": error_msg},
+            context={"error": error_msg, "motd": await get_runtime_setting("motd")},
             status_code=401,
         )
 
@@ -90,7 +92,7 @@ async def login_submit(
         return templates.TemplateResponse(
             request,
             "login.html",
-            context={"error": error_msg},
+            context={"error": error_msg, "motd": await get_runtime_setting("motd")},
             status_code=401,
         )
 

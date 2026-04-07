@@ -54,6 +54,7 @@ class AuditAction(str, enum.Enum):
     HOST_DELETED = "host_deleted"
     HOST_ASSIGNED = "host_assigned"
     HOST_UNASSIGNED = "host_unassigned"
+    SETTINGS_CHANGED = "settings_changed"
 
 
 user_host_assignment = Table(
@@ -126,3 +127,11 @@ class AuditLog(Base):
     detail = Column(JSON, nullable=True)
 
     actor = relationship("User", foreign_keys=[actor_id])
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

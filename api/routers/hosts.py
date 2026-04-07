@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_settings, register_template_filters, slugify, write_audit_log
+from core import get_db, get_runtime_setting, get_settings, register_template_filters, slugify, write_audit_log
 from dependencies import require_role, require_totp_complete
 from models import AuditAction, Host, User, UserRole
 
@@ -31,7 +31,7 @@ async def host_list(
     )
     hosts = result.scalars().all()
     settings = get_settings()
-    ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+    ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
 
     # Load all active users for assignment dropdowns (admin only)
     all_users = []
@@ -60,7 +60,7 @@ async def create_host(
 ):
     async def _form_error(detail: str):
         settings = get_settings()
-        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+        ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
         result = await db.execute(
             select(Host).options(selectinload(Host.assigned_users)).order_by(Host.created_at.desc())
         )
@@ -153,7 +153,7 @@ async def deactivate_host(
         )
         host = result.scalar_one()
         settings = get_settings()
-        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+        ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
         return templates.TemplateResponse(
             request,
             "partials/host_row.html",
@@ -232,7 +232,7 @@ async def assign_host(
         )
         host = result.scalar_one()
         settings = get_settings()
-        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+        ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
         users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
         all_users = users_result.scalars().all()
         return templates.TemplateResponse(
@@ -282,7 +282,7 @@ async def unassign_host(
         )
         host = result.scalar_one()
         settings = get_settings()
-        ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+        ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
         users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
         all_users = users_result.scalars().all()
         return templates.TemplateResponse(

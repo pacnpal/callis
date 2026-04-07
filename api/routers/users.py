@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_settings, hash_password, parse_ssh_public_key, register_template_filters, write_audit_log
+from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_runtime_setting, get_settings, hash_password, parse_ssh_public_key, register_template_filters, write_audit_log
 from dependencies import require_admin_or_self, require_role
 from models import AuditAction, SSHKey, User, UserRole
 
@@ -73,7 +73,7 @@ async def user_detail(
     assigned_hosts = [h for h in target_user.assigned_hosts if h.is_active]
 
     settings = get_settings()
-    ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+    ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
 
     return templates.TemplateResponse(
         request,
@@ -128,8 +128,9 @@ async def create_user(
         return await _form_error(f"Username '{username}' is reserved")
 
     # Server-side password validation
-    if len(password) < 8:
-        return await _form_error("Password must be at least 8 characters")
+    pwd_min = await get_runtime_setting("password_min_length")
+    if len(password) < pwd_min:
+        return await _form_error(f"Password must be at least {pwd_min} characters")
 
     # Validate role
     try:
@@ -290,17 +291,16 @@ async def upload_key(
     if not target.is_active:
         raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
 
-    settings = get_settings()
-
     # Check key limit
+    max_keys = await get_runtime_setting("max_keys_per_user")
     count_result = await db.execute(
         select(func.count()).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
     )
     current_count = count_result.scalar()
-    if current_count >= settings.MAX_KEYS_PER_USER:
+    if current_count >= max_keys:
         raise HTTPException(
             status_code=400,
-            detail=f"Maximum {settings.MAX_KEYS_PER_USER} keys per user",
+            detail=f"Maximum {max_keys} keys per user",
         )
 
     # Validate and parse the key

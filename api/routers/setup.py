@@ -15,6 +15,7 @@ from core import (
     create_jwt,
     encrypt_totp_secret,
     generate_totp_secret,
+    get_runtime_setting,
     get_session_factory,
     get_settings,
     get_totp_uri,
@@ -101,8 +102,9 @@ async def setup_submit(
         errors.append("Username must start with a letter, contain only lowercase letters, numbers, hyphens, and underscores, and be 1-32 characters.")
     if username in RESERVED_USERNAMES:
         errors.append(f"Username '{username}' is reserved.")
-    if len(password) < 8:
-        errors.append("Password must be at least 8 characters.")
+    min_length: int = await get_runtime_setting("password_min_length")
+    if len(password) < min_length:
+        errors.append(f"Password must be at least {min_length} characters.")
     if password != password_confirm:
         errors.append("Passwords do not match.")
 

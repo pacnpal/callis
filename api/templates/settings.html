@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Settings - {{ instance_name() }}{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+
+<p class="text-muted">Configure your Callis instance. Most changes apply immediately; session timeouts only affect new sessions, and read-only settings require a restart. Settings override environment variable defaults and persist across restarts.</p>
+
+{% if error %}
+<div class="flash flash-error" role="alert">{{ error }}</div>
+{% endif %}
+{% if success %}
+<div class="flash flash-success" role="status">{{ success }}</div>
+{% endif %}
+
+<form method="post" action="/settings">
+  {% for group_name, settings in groups.items() %}
+  <article>
+    <header><strong>{{ group_name }}</strong></header>
+    {% for s in settings %}
+    <div class="setting-row">
+      <label for="{{ s.key }}">{{ s.label }}</label>
+      {% if s.readonly is defined and s.readonly %}
+        <input type="text" id="{{ s.key }}" value="{{ s.value }}" aria-describedby="{{ s.key }}_help" disabled>
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
+      {% elif s.type == "choice" %}
+        <select id="{{ s.key }}" name="{{ s.key }}" aria-describedby="{{ s.key }}_help">
+          {% for opt in s.choices %}
+            <option value="{{ opt }}" {% if s.value == opt %}selected{% endif %}>{{ opt }}</option>
+          {% endfor %}
+        </select>
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
+      {% elif s.type == "text" %}
+        <textarea id="{{ s.key }}" name="{{ s.key }}" rows="3" placeholder="{{ s.help }}" aria-describedby="{{ s.key }}_help">{{ s.value }}</textarea>
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
+      {% elif s.type == "int" %}
+        <input type="number" id="{{ s.key }}" name="{{ s.key }}" value="{{ s.value }}" aria-describedby="{{ s.key }}_help"
+               {% if s.min is defined %}min="{{ s.min }}"{% endif %}
+               {% if s.max is defined %}max="{{ s.max }}"{% endif %}>
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
+      {% else %}
+        <input type="text" id="{{ s.key }}" name="{{ s.key }}" value="{{ s.value }}" aria-describedby="{{ s.key }}_help">
+        <p id="{{ s.key }}_help" class="helper-text">{{ s.help }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </article>
+  {% endfor %}
+
+  <button type="submit">Save Changes</button>
+</form>
+{% endblock %}

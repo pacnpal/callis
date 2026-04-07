@@ -16,12 +16,12 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from core import get_db, get_engine, get_settings, limiter, register_template_filters
+from core import get_db, get_engine, get_runtime_setting, get_session_factory, get_settings, limiter, load_db_settings, register_template_filters
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from middleware.setup_guard import SetupGuardMiddleware
 from models import AuditLog, Base, Host, SSHKey, User
-from routers import auth, users, hosts, audit, setup
+from routers import auth, users, hosts, audit, setup, settings as settings_router
 from routers.internal import internal_app
 
 logger = logging.getLogger("callis")
@@ -37,7 +37,23 @@ register_template_filters(templates)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # DB init runs in _init_db() before servers start; lifespan only handles shutdown
+    # DB init + settings cache preload on startup — runs for any entrypoint
+    # (both `python main.py` via run_servers() and `uvicorn main:app` directly)
+    await _init_db()
+    await load_db_settings()
+
+    # Warn if no admin account has been created yet (first-run state)
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(select(func.count()).select_from(User))
+        if result.scalar() == 0:
+            logger.warning("=" * 60)
+            logger.warning("FIRST RUN: No admin account exists.")
+            logger.warning("Open http://<server>:8080 IMMEDIATELY to complete setup.")
+            logger.warning("The /setup page is publicly accessible until an admin")
+            logger.warning("account is created. Do not expose this port until done.")
+            logger.warning("=" * 60)
+
     yield
     engine = get_engine()
     await engine.dispose()
@@ -80,6 +96,7 @@ app.include_router(setup.router)
 app.include_router(users.router)
 app.include_router(hosts.router)
 app.include_router(audit.router)
+app.include_router(settings_router.router)
 
 
 # Dashboard
@@ -121,7 +138,7 @@ async def dashboard(
     recent_audit = audit_result.scalars().all()
 
     # SSH host for config snippet
-    ssh_host = urlparse(settings.BASE_URL).hostname or "localhost"
+    ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
 
     return templates.TemplateResponse(
         request,
@@ -252,8 +269,14 @@ async def generic_exception_handler(request: Request, exc: Exception):
 # Entrypoint: run both apps
 # ---------------------------------------------------------------------------
 
+# Mutable set tracks which init steps have run; avoids a `global` bool flag.
+_initialized: set[str] = set()
+
+
 async def _init_db():
-    """Run DB initialization (table creation) before servers start."""
+    """Run DB initialization (table creation) — idempotent; no-op if already done."""
+    if "db" in _initialized:
+        return
     settings = get_settings()
     logging.basicConfig(
         level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -262,24 +285,14 @@ async def _init_db():
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    _initialized.add("db")
 
 
 async def run_servers():
-    # Initialize DB before either server starts accepting connections
+    # Initialize DB and preload settings cache before either server starts
+    # so internal_app (which has no lifespan) can serve requests immediately.
     await _init_db()
-
-    # Warn if no admin account has been created yet (first-run state)
-    from core import get_session_factory
-    factory = get_session_factory()
-    async with factory() as db:
-        result = await db.execute(select(func.count()).select_from(User))
-        if result.scalar() == 0:
-            logger.warning("=" * 60)
-            logger.warning("FIRST RUN: No admin account exists.")
-            logger.warning("Open http://<server>:8080 IMMEDIATELY to complete setup.")
-            logger.warning("The /setup page is publicly accessible until an admin")
-            logger.warning("account is created. Do not expose this port until done.")
-            logger.warning("=" * 60)
+    await load_db_settings()
 
     settings = get_settings()
     log_level = settings.LOG_LEVEL.lower()
