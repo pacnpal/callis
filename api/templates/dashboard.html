@@ -58,12 +58,12 @@
   <p class="text-small text-muted">View your full SSH config with host aliases on your <a href="/users/{{ user.id }}">profile page</a>.</p>
 
   <h4>Callis CLI</h4>
-  <p class="text-small">Connect to hosts by alias without editing your SSH config:</p>
+  <p class="text-small">Connect to hosts by tag without editing your SSH config:</p>
   <div class="ssh-config-actions">
     <button type="button" class="outline btn-sm" data-copy-trigger="cli-install">Copy</button>
   </div>
   <pre class="ssh-config" data-copy-target="cli-install">curl -fsSL {{ request.url_for('install_script') }} | sh</pre>
-  <p class="text-small text-muted">Then run <code>callis setup</code> to configure, <code>callis list</code> to see hosts, and <code>callis &lt;alias&gt;</code> to connect.</p>
+  <p class="text-small text-muted">Then run <code>callis setup</code> to configure, <code>callis list</code> to see hosts, and <code>callis &lt;tag&gt;</code> to connect.</p>
 </section>
 
 {% if recent_audit %}

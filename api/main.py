@@ -140,8 +140,10 @@ async def dashboard(
 
 # CLI installer — curl http://callis:8080/install.sh | sh
 @app.get("/install.sh")
-async def install_script(request: Request):
-    script_url = str(request.url_for("callis_script"))
+async def install_script():
+    _settings = get_settings()
+    base_url = _settings.BASE_URL.rstrip("/")
+    script_url = f"{base_url}/callis.sh"
     installer = f'''#!/bin/sh
 set -e
 
@@ -150,6 +152,7 @@ SCRIPT_URL={shlex.quote(script_url)}
 
 echo "Installing Callis CLI..."
 mkdir -m 700 -p "$CALLIS_DIR"
+chmod 700 "$CALLIS_DIR"
 curl -fsSL "$SCRIPT_URL" -o "$CALLIS_DIR/callis.sh"
 chmod 644 "$CALLIS_DIR/callis.sh"
 
