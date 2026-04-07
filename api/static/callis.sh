@@ -159,6 +159,7 @@ _callis_connect() {
     TARGET_PORT=$(echo "$DEST" | awk '{print $2}')
 
     ssh -i "$CALLIS_KEY" \
+        -o BatchMode=yes -o StrictHostKeyChecking=yes \
         -J "${CALLIS_USER}@${CALLIS_HOST}:${CALLIS_PORT}" \
         -p "$TARGET_PORT" "$@" \
         "${CALLIS_USER}@${TARGET_HOST}"

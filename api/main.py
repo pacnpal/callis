@@ -68,7 +68,11 @@ app.add_middleware(SecurityHeadersMiddleware)
 # source IPs and request-derived URLs from being spoofed by direct clients.
 _settings = get_settings()
 if _settings.HTTPS_ENABLED:
-    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_settings.TRUSTED_PROXIES)
+    _raw = _settings.TRUSTED_PROXIES.strip()
+    _trusted_hosts: str | list[str] = (
+        "*" if _raw == "*" else [h.strip() for h in _raw.split(",") if h.strip()]
+    )
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_hosts)
 
 # Routers
 app.include_router(auth.router)
