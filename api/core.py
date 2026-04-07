@@ -159,6 +159,7 @@ class Settings(BaseSettings):
     BASE_URL: str = "http://localhost:8080"
     DEV_MODE: bool = False
     HTTPS_ENABLED: bool = False
+    TRUSTED_PROXIES: str = "*"
     LOG_LEVEL: str = "info"
     SSH_PORT: int = 2222
 

@@ -1,16 +1,20 @@
 import asyncio
 import logging
+import shlex
 from contextlib import asynccontextmanager
+from pathlib import Path
 from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from core import get_db, get_engine, get_settings, limiter, register_template_filters
 from dependencies import require_totp_complete
@@ -57,6 +61,18 @@ app.add_middleware(TOTPGuardMiddleware)
 app.add_middleware(SetupGuardMiddleware)
 app.add_middleware(SessionMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+# When HTTPS_ENABLED=true the app is behind a TLS reverse proxy.  Trust
+# X-Forwarded-Proto/Host headers so request.url_for() returns https:// URLs.
+# TRUSTED_PROXIES (default "*") can be set to a specific IP or CIDR so only
+# known proxy addresses can set forwarding headers, protecting audit-log
+# source IPs and request-derived URLs from being spoofed by direct clients.
+_settings = get_settings()
+if _settings.HTTPS_ENABLED:
+    _raw = _settings.TRUSTED_PROXIES.strip()
+    _trusted_hosts: str | list[str] = (
+        "*" if _raw == "*" else [h.strip() for h in _raw.split(",") if h.strip()]
+    )
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_hosts)
 
 # Routers
 app.include_router(auth.router)
@@ -122,10 +138,82 @@ async def dashboard(
     )
 
 
+# CLI installer — curl http://callis:8080/install.sh | sh
+@app.get("/install.sh")
+async def install_script():
+    _settings = get_settings()
+    base_url = _settings.BASE_URL.rstrip("/")
+    if not base_url.startswith(("http://", "https://")):
+        return PlainTextResponse(
+            "Installer unavailable: BASE_URL is not configured correctly.\n",
+            status_code=503,
+        )
+    script_url = f"{base_url}/callis.sh"
+    installer = f'''#!/bin/sh
+set -e
+
+CALLIS_DIR="$HOME/.config/callis"
+SCRIPT_URL={shlex.quote(script_url)}
+
+echo "Installing Callis CLI..."
+mkdir -m 700 -p "$CALLIS_DIR"
+chmod 700 "$CALLIS_DIR"
+curl -fsSL "$SCRIPT_URL" -o "$CALLIS_DIR/callis.sh"
+chmod 644 "$CALLIS_DIR/callis.sh"
+
+SOURCE_LINE='. "$HOME/.config/callis/callis.sh"'
+ADDED=0
+
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$rc" ]; then
+        if ! grep -qF "callis/callis.sh" "$rc"; then
+            printf '\\n# Callis CLI\\n%s\\n' "$SOURCE_LINE" >> "$rc"
+            echo "  Added to $(basename "$rc")"
+            ADDED=1
+        else
+            echo "  Already in $(basename "$rc")"
+            ADDED=1
+        fi
+    fi
+done
+
+if [ "$ADDED" -eq 0 ]; then
+    echo "  No .bashrc or .zshrc found. Add this to your shell rc:"
+    echo "    $SOURCE_LINE"
+fi
+
+echo ""
+echo "Done! Run '$SOURCE_LINE' or open a new shell, then:"
+echo "  callis setup"
+echo "  callis list"
+echo "  callis <tag>"
+'''
+    return Response(content=installer, media_type="text/plain")
+
+
+def _get_callis_script_path() -> Path | None:
+    # api/static/callis.sh is the single canonical source; it is bundled into
+    # the Docker image via `COPY api/ .` so it is always present in production.
+    script_path = Path(__file__).resolve().parent / "static" / "callis.sh"
+    return script_path if script_path.is_file() else None
+
+
+# Serve the raw CLI script
+@app.get("/callis.sh")
+async def callis_script():
+    script_path = _get_callis_script_path()
+    if script_path is None:
+        logger.warning(
+            "callis.sh not found; expected at: %s",
+            str(Path(__file__).resolve().parent / "static" / "callis.sh"),
+        )
+        return PlainTextResponse("callis.sh not found.\n", status_code=404)
+    return FileResponse(script_path, media_type="text/plain")
+
+
 # Root redirect
 @app.get("/")
 async def root():
-    from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
@@ -134,7 +222,6 @@ async def root():
 async def http_exception_handler(request: Request, exc: HTTPException):
     # Redirect exceptions (303) pass through as-is
     if exc.status_code == 303:
-        from fastapi.responses import RedirectResponse
         return RedirectResponse(url=exc.headers.get("Location", "/login"), status_code=303)
     # For browser requests, render an HTML error page
     accept = request.headers.get("accept", "")
@@ -146,7 +233,6 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             status_code=exc.status_code,
         )
     # API/JSON clients get the default JSON response
-    from fastapi.responses import JSONResponse
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 

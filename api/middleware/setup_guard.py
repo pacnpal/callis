@@ -6,7 +6,7 @@ from starlette.responses import RedirectResponse, Response
 from core import get_session_factory
 from models import User
 
-_SETUP_EXEMPT_PATHS = {"/setup"}
+_SETUP_EXEMPT_PATHS = {"/setup", "/install.sh", "/callis.sh"}
 _SETUP_EXEMPT_PREFIXES = ("/static/", "/health")
 
 
