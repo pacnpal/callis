@@ -66,8 +66,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 # TRUSTED_PROXIES (default "*") can be set to a specific IP or CIDR so only
 # known proxy addresses can set forwarding headers, protecting audit-log
 # source IPs and request-derived URLs from being spoofed by direct clients.
-if get_settings().HTTPS_ENABLED:
-    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=get_settings().TRUSTED_PROXIES)
+_settings = get_settings()
+if _settings.HTTPS_ENABLED:
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_settings.TRUSTED_PROXIES)
 
 # Routers
 app.include_router(auth.router)
