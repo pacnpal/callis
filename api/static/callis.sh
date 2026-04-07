@@ -89,8 +89,9 @@ _callis_setup() {
         chmod 600 "${CALLIS_CONFIG_DIR}/known_hosts"
         echo "Host key saved."
     else
-        echo "Warning: could not fetch SSH host key from ${CALLIS_HOST}:${CALLIS_PORT}." >&2
-        echo "Run 'callis setup' again once the server is reachable." >&2
+        echo "Error: could not fetch SSH host key from ${CALLIS_HOST}:${CALLIS_PORT}." >&2
+        echo "Ensure the server is reachable and run 'callis setup' again." >&2
+        return 1
     fi
 }
 
@@ -125,10 +126,16 @@ _callis_load_config() {
     esac
 }
 
+_callis_has_known_hosts_entries() {
+    known_hosts_file="$1"
+    [ -s "$known_hosts_file" ] || return 1
+    grep -Eq '^[[:space:]]*[^#[:space:]]' "$known_hosts_file"
+}
+
 _callis_list() {
     _callis_load_config || return 1
-    if [ ! -f "${CALLIS_CONFIG_DIR}/known_hosts" ]; then
-        echo "Error: SSH host key not found. Run 'callis setup' to fetch it." >&2
+    if ! _callis_has_known_hosts_entries "${CALLIS_CONFIG_DIR}/known_hosts"; then
+        echo "Error: SSH host key file is missing, empty, or invalid. Run 'callis setup' to fetch it again." >&2
         return 1
     fi
     ssh -i "$CALLIS_KEY" -p "$CALLIS_PORT" \
@@ -148,8 +155,8 @@ _callis_connect() {
             return 1 ;;
     esac
 
-    if [ ! -f "${CALLIS_CONFIG_DIR}/known_hosts" ]; then
-        echo "Error: SSH host key not found. Run 'callis setup' to fetch it." >&2
+    if ! _callis_has_known_hosts_entries "${CALLIS_CONFIG_DIR}/known_hosts"; then
+        echo "Error: SSH host key file is missing, empty, or invalid. Run 'callis setup' to fetch it again." >&2
         return 1
     fi
 
@@ -183,10 +190,12 @@ _callis_connect() {
     TARGET_HOST=$(echo "$DEST" | awk '{print $1}')
     TARGET_PORT=$(echo "$DEST" | awk '{print $2}')
 
+    PROXY_COMMAND="ssh -i \"$CALLIS_KEY\" -p \"$CALLIS_PORT\" -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"${CALLIS_CONFIG_DIR}/known_hosts\" -W %h:%p \"${CALLIS_USER}@${CALLIS_HOST}\""
+
     ssh -i "$CALLIS_KEY" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
-        -o "UserKnownHostsFile=${CALLIS_CONFIG_DIR}/known_hosts ${HOME}/.ssh/known_hosts" \
-        -J "${CALLIS_USER}@${CALLIS_HOST}:${CALLIS_PORT}" \
+        -o "UserKnownHostsFile=${HOME}/.ssh/known_hosts" \
+        -o "ProxyCommand=${PROXY_COMMAND}" \
         -p "$TARGET_PORT" "$@" \
         "${CALLIS_USER}@${TARGET_HOST}"
 }
