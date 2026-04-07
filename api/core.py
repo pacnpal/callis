@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.serialization import (
     NoEncryption,
     PrivateFormat,
     PublicFormat,
-    load_pem_private_key,
+    load_ssh_private_key,
 )
 import jwt
 from jwt.exceptions import PyJWTError as JWTError
@@ -506,7 +506,7 @@ def generate_ssh_keypair(comment: str = "") -> tuple[str, str]:
         (private_key_openssh: str, public_key_openssh: str)
 
     The private key is in OpenSSH PEM format.  The public key is a single
-    authorised-keys line; an optional comment is appended when provided.
+    authorized_keys line; an optional comment is appended when provided.
     """
     private_key = Ed25519PrivateKey.generate()
     private_key_text = private_key.private_bytes(
@@ -524,6 +524,37 @@ def generate_ssh_keypair(comment: str = "") -> tuple[str, str]:
 
 
 _DEPLOY_KEY_PATH = "/data/callis_deploy_key"
+_deploy_public_key_cache: str | None = None
+# Note: Callis runs as a single-worker asyncio process (uvicorn --workers 1),
+# so _deploy_public_key_cache is only accessed from one thread. Multi-worker
+# deployments use separate OS processes, each with their own cache.
+
+
+def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str | None:
+    """Load the deploy private key from *priv_path* and return its OpenSSH public key.
+
+    Writes the derived public key to *pub_path* as a side-effect when possible.
+    Returns ``None`` (and logs a warning) if the file is missing or unreadable.
+    """
+    try:
+        with open(priv_path, "rb") as f:
+            priv_bytes = f.read()
+        priv = load_ssh_private_key(priv_bytes, password=None)
+        pub_text = priv.public_key().public_bytes(
+            encoding=Encoding.OpenSSH,
+            format=PublicFormat.OpenSSH,
+        ).decode().strip()
+        try:
+            with open(pub_path, "w") as fh:
+                fh.write(pub_text + "\n")
+        except OSError:
+            pass
+        return pub_text
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        logger.warning("Could not load deploy private key at %s: %s", priv_path, exc)
+        return None
 
 
 def get_server_deploy_public_key() -> str:
@@ -533,17 +564,21 @@ def get_server_deploy_public_key() -> str:
     OpenSSH public key as a single-line string, or an empty string if the key
     cannot be generated (e.g. /data is not writable in dev without Docker).
 
-    This function performs synchronous file I/O.  It is intended to be called
-    at most once per process lifetime (on first access) so the blocking impact
-    is negligible.
+    The result is cached in memory after the first successful read so that
+    subsequent calls do not block the event loop with disk I/O.
     """
+    global _deploy_public_key_cache
+    if _deploy_public_key_cache is not None:
+        return _deploy_public_key_cache
+
     priv_path = _DEPLOY_KEY_PATH
     pub_path = priv_path + ".pub"
 
     # Fast path: public key file already exists.
     try:
         with open(pub_path) as f:
-            return f.read().strip()
+            _deploy_public_key_cache = f.read().strip()
+            return _deploy_public_key_cache
     except FileNotFoundError:
         pass
     except OSError as exc:
@@ -551,24 +586,10 @@ def get_server_deploy_public_key() -> str:
         return ""
 
     # Private key exists but public key file is missing — derive it.
-    try:
-        with open(priv_path, "rb") as f:
-            priv_bytes = f.read()
-        priv = load_pem_private_key(priv_bytes, password=None)
-        pub_text = priv.public_key().public_bytes(
-            encoding=Encoding.OpenSSH,
-            format=PublicFormat.OpenSSH,
-        ).decode().strip()
-        try:
-            with open(pub_path, "w") as f:
-                f.write(pub_text + "\n")
-        except OSError:
-            pass
+    pub_text = _derive_public_key_from_private_file(priv_path, pub_path)
+    if pub_text is not None:
+        _deploy_public_key_cache = pub_text
         return pub_text
-    except FileNotFoundError:
-        pass
-    except Exception as exc:
-        logger.warning("Could not load existing deploy private key at %s: %s", priv_path, exc)
 
     # Generate a fresh keypair and persist it.
     private_key_text, public_key_text = generate_ssh_keypair(comment="callis@deploy")
@@ -582,8 +603,31 @@ def get_server_deploy_public_key() -> str:
         with os.fdopen(fd, "w") as f:
             f.write(private_key_text)
     except FileExistsError:
-        # Another concurrent call beat us — recurse once to pick up the new key.
-        return get_server_deploy_public_key()
+        # Another concurrent call beat us.  Try to read the key they persisted;
+        # return empty string rather than a mismatched in-memory key if that fails.
+        try:
+            with open(pub_path) as f:
+                _deploy_public_key_cache = f.read().strip()
+                return _deploy_public_key_cache
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logger.warning(
+                "Could not read deploy public key at %s after concurrent creation: %s",
+                pub_path, exc,
+            )
+
+        derived = _derive_public_key_from_private_file(priv_path, pub_path)
+        if derived is not None:
+            _deploy_public_key_cache = derived
+            return derived
+
+        logger.warning(
+            "Could not recover deploy public key after concurrent creation at %s; "
+            "returning empty string.",
+            priv_path,
+        )
+        return ""
     except (PermissionError, OSError) as exc:
         logger.warning(
             "Could not persist server deploy key to %s: %s. "
@@ -598,6 +642,7 @@ def get_server_deploy_public_key() -> str:
     except (PermissionError, OSError) as exc:
         logger.warning("Could not write deploy public key to %s: %s", pub_path, exc)
     logger.info("Generated Callis server deploy key and saved to %s", priv_path)
+    _deploy_public_key_cache = public_key_text
     return public_key_text
 
 

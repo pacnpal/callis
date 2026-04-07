@@ -35,16 +35,18 @@ async def host_list(
 
     # Load all active users for assignment dropdowns (admin only)
     all_users = []
+    server_deploy_key = ""
     if user.role == UserRole.admin:
         users_result = await db.execute(
             select(User).where(User.is_active == True).order_by(User.username)
         )
         all_users = users_result.scalars().all()
+        server_deploy_key = get_server_deploy_public_key()
 
     return templates.TemplateResponse(
         request,
         "hosts.html",
-        context={"hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users, "server_deploy_key": get_server_deploy_public_key()},
+        context={"hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users, "server_deploy_key": server_deploy_key},
     )
 
 

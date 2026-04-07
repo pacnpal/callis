@@ -477,4 +477,5 @@ async def generate_key(
             "target_user_id": user_id,
             "user": user,
         },
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )
