@@ -557,6 +557,9 @@ def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str |
         return None
 
 
+_deploy_public_key_cache: str | None = None
+
+
 def get_server_deploy_public_key() -> str:
     """Return Callis's server deploy public key, generating it if needed.
 
