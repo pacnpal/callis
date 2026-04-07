@@ -248,7 +248,7 @@ def _instance_name() -> str:
     """Return the current instance name (DB override or default)."""
     if _db_settings_cache is not None and "instance_name" in _db_settings_cache:
         return _db_settings_cache["instance_name"]
-    return "Callis"
+    return CONFIGURABLE_SETTINGS["instance_name"]["default"]
 
 
 def register_template_filters(jinja_templates) -> None:
@@ -554,13 +554,36 @@ def invalidate_db_settings_cache() -> None:
     _db_settings_cache = None
 
 
+def update_db_settings_cache(
+    upserts: dict[str, str],
+    deletes: list[str],
+) -> None:
+    """Apply pending save mutations directly to the in-memory cache.
+
+    Called after db.flush() in save_settings() so that the post-save template
+    render (and any concurrent requests) see the new values immediately —
+    without a race window where the cache is None and another request can
+    repopulate it with stale (pre-commit) DB data.
+    """
+    global _db_settings_cache
+    if _db_settings_cache is None:
+        # Cache was invalidated before save completed; next load_db_settings()
+        # call will repopulate from the committed DB state, so this is safe.
+        logger.debug("update_db_settings_cache called with empty cache; skipping in-place update")
+        return
+    for key in deletes:
+        _db_settings_cache.pop(key, None)
+    _db_settings_cache.update(upserts)
+
+
 def get_effective_settings(db_settings: dict[str, str]) -> dict[str, Any]:
     """Merge DB overrides on top of env-var / default values."""
     env = get_settings()
     result: dict[str, Any] = {}
     for key, meta in CONFIGURABLE_SETTINGS.items():
-        # DB value takes priority unless it is invalid for the expected type.
-        use_db_value = key in db_settings
+        # Never apply DB overrides to read-only settings (configured at container
+        # level via env vars; the DB row, if it exists, is ignored for correctness).
+        use_db_value = not meta.get("readonly") and key in db_settings
         if use_db_value:
             raw = db_settings[key]
             if meta["type"] == "int":
@@ -596,8 +619,10 @@ async def get_runtime_setting(key: str) -> Any:
     """Get a single runtime setting value using a fast single-key path.
 
     Reads from the in-memory cache (populated by load_db_settings at startup
-    and refreshed after each settings save) and only resolves the requested
-    key, avoiding a full iteration over CONFIGURABLE_SETTINGS on every call.
+    and updated in-place after each settings save via update_db_settings_cache)
+    and only resolves the requested key, avoiding a full iteration over
+    CONFIGURABLE_SETTINGS on every call.  Read-only settings always return
+    the env-var / compiled default regardless of any DB row.
     """
     meta = CONFIGURABLE_SETTINGS.get(key)
     if meta is None:
@@ -605,7 +630,7 @@ async def get_runtime_setting(key: str) -> Any:
 
     db_settings = await load_db_settings()
 
-    if key in db_settings:
+    if not meta.get("readonly") and key in db_settings:
         raw = db_settings[key]
         if meta["type"] == "int":
             try:

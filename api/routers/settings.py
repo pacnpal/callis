@@ -9,9 +9,9 @@ from core import (
     CONFIGURABLE_SETTINGS,
     get_db,
     get_effective_settings,
-    invalidate_db_settings_cache,
     load_db_settings,
     register_template_filters,
+    update_db_settings_cache,
     write_audit_log,
 )
 from dependencies import require_role
@@ -153,7 +153,11 @@ async def save_settings(
         )
 
     await db.flush()
-    invalidate_db_settings_cache()
+    # Update the in-memory cache directly with the committed mutations so that:
+    # (a) this response's template render sees the new instance_name / values,
+    # (b) there is no window where the cache is None and a concurrent request
+    #     can repopulate it with pre-commit (stale) data from the DB.
+    update_db_settings_cache(pending_upserts, pending_deletes)
 
     # Build the post-save view in memory from the validated changes so we
     # don't need a redundant commit + new DB round-trip.  The Depends(get_db)
