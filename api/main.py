@@ -14,7 +14,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from core import get_db, get_engine, get_runtime_setting, get_session_factory, get_settings, limiter, load_db_settings, register_template_filters
 from dependencies import require_totp_complete
@@ -158,8 +158,7 @@ async def dashboard(
 # CLI installer — curl http://callis:8080/install.sh | sh
 @app.get("/install.sh")
 async def install_script():
-    _settings = get_settings()
-    base_url = _settings.BASE_URL.rstrip("/")
+    base_url = (await get_runtime_setting("base_url") or "http://localhost:8080").rstrip("/")
     if not base_url.startswith(("http://", "https://")):
         return PlainTextResponse(
             "Installer unavailable: BASE_URL is not configured correctly.\n",
