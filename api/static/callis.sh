@@ -251,12 +251,12 @@ _callis_connect() {
     # Validate bastion-supplied TARGET_HOST and TARGET_PORT to prevent shell
     # injection via OpenSSH's %h/%p substitution in ProxyCommand.
     case "$TARGET_HOST" in
-        ''|*[!A-Za-z0-9._:-]*)
+        ''|*[!A-Za-z0-9.-]*)
             echo "Error: bastion returned an invalid target host" >&2
             return 1 ;;
     esac
     case "$TARGET_PORT" in
-        ''|*[!0-9]*)
+        ''|*[!0-9]*|0[0-9]*)
             echo "Error: bastion returned an invalid target port" >&2
             return 1 ;;
     esac
