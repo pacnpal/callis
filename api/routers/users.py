@@ -434,8 +434,8 @@ async def generate_key(
 
     try:
         key_info = parse_ssh_public_key(public_key_text)
-    except ValueError as e:
-        logger.error("Key generation internal error for user %s: %s", user_id, e)
+    except ValueError:
+        logger.exception("Key generation internal error for user %s", user_id)
         raise HTTPException(status_code=500, detail="Key generation failed")
 
     new_key = SSHKey(
@@ -469,16 +469,18 @@ async def generate_key(
     )
     keys = keys_result.scalars().all()
 
-    return templates.TemplateResponse(
-        request,
-        "partials/generated_key.html",
-        context={
-            "private_key": private_key_text,
-            "label": label,
-            "fingerprint": key_info["fingerprint"],
-            "keys": keys,
-            "target_user_id": user_id,
-            "user": user,
-        },
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request,
+            "partials/generated_key.html",
+            context={
+                "private_key": private_key_text,
+                "label": label,
+                "fingerprint": key_info["fingerprint"],
+                "keys": keys,
+                "target_user_id": user_id,
+                "user": user,
+            },
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+    return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)

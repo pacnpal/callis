@@ -578,8 +578,16 @@ def get_server_deploy_public_key() -> str:
     OpenSSH public key as a single-line string, or an empty string if the key
     cannot be generated (e.g. /data is not writable in dev without Docker).
 
+    **Blocking:** this function performs synchronous disk I/O (stat, open, read,
+    chmod, and possibly key generation and file writes).  It must not be called
+    directly from async request handlers.  Call it at application startup (e.g.
+    in the FastAPI ``lifespan`` function) or offload it to a thread pool::
+
+        import anyio
+        key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
+
     The result is cached in memory after the first successful read so that
-    subsequent calls do not block the event loop with disk I/O.
+    subsequent calls return immediately without any I/O.
     """
     global _deploy_public_key_cache
     if _deploy_public_key_cache is not None:
