@@ -463,6 +463,10 @@ async def generate_key(
             return HTMLResponse(
                 f'<p class="text-error" role="alert">{html.escape(exc.detail)}</p>',
                 status_code=200,
+                headers={
+                    "HX-Retarget": "#generate-key-error",
+                    "HX-Reswap": "innerHTML",
+                },
             )
         raise
     if not label:
