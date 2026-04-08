@@ -127,7 +127,9 @@ _callis_setup() {
             return 1
         fi
 
-        if [ -s "$KNOWN_HOSTS_FILE" ]; then
+        # Use -f (existence) not -s (non-empty) so empty or corrupt files also
+        # trigger the overwrite confirmation and are not silently replaced.
+        if [ -f "$KNOWN_HOSTS_FILE" ]; then
             echo "Warning: ${KNOWN_HOSTS_FILE} already exists and will be replaced."
             printf "Type 'yes' to overwrite the existing Callis host key: "
             read -r OVERWRITE_KNOWN_HOSTS
@@ -138,23 +140,52 @@ _callis_setup() {
             fi
         fi
 
+        # Back up the existing known_hosts so it can be restored if the final
+        # config commit fails, ensuring no partial state is left on disk.
+        BACKUP_KNOWN_HOSTS=""
+        if [ -f "$KNOWN_HOSTS_FILE" ]; then
+            BACKUP_KNOWN_HOSTS=$(mktemp "${KNOWN_HOSTS_FILE}.bak.XXXXXX") || {
+                rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
+                echo "Error: could not create backup of existing known_hosts." >&2
+                return 1
+            }
+            if ! cp "$KNOWN_HOSTS_FILE" "$BACKUP_KNOWN_HOSTS"; then
+                rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE" "$BACKUP_KNOWN_HOSTS"
+                echo "Error: could not back up existing known_hosts." >&2
+                return 1
+            fi
+        fi
+
         if ! mv "$TMP_KNOWN_HOSTS_FILE" "$KNOWN_HOSTS_FILE"; then
-            rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE" "$BACKUP_KNOWN_HOSTS"
             echo "Error: could not save SSH host key to ${KNOWN_HOSTS_FILE}." >&2
             return 1
         fi
         if ! chmod 600 "$KNOWN_HOSTS_FILE"; then
-            rm -f "$KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
+            if [ -n "$BACKUP_KNOWN_HOSTS" ]; then
+                mv "$BACKUP_KNOWN_HOSTS" "$KNOWN_HOSTS_FILE" || \
+                    echo "Warning: could not restore previous known_hosts from ${BACKUP_KNOWN_HOSTS}." >&2
+            else
+                rm -f "$KNOWN_HOSTS_FILE"
+            fi
+            rm -f "$TMP_CONFIG_FILE"
             echo "Error: could not set permissions on ${KNOWN_HOSTS_FILE}." >&2
             return 1
         fi
         # Both files are ready — atomically commit the config last so that
         # any earlier abort leaves the previous config intact.
         if ! mv "$TMP_CONFIG_FILE" "$CALLIS_CONFIG_FILE"; then
-            rm -f "$TMP_CONFIG_FILE" "$KNOWN_HOSTS_FILE"
+            if [ -n "$BACKUP_KNOWN_HOSTS" ]; then
+                mv "$BACKUP_KNOWN_HOSTS" "$KNOWN_HOSTS_FILE" || \
+                    echo "Warning: could not restore previous known_hosts from ${BACKUP_KNOWN_HOSTS}." >&2
+            else
+                rm -f "$KNOWN_HOSTS_FILE"
+            fi
+            rm -f "$TMP_CONFIG_FILE"
             echo "Error: could not save configuration to ${CALLIS_CONFIG_FILE}." >&2
             return 1
         fi
+        rm -f "$BACKUP_KNOWN_HOSTS"
         echo "Setup complete. Configuration and host key saved."
     else
         rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
