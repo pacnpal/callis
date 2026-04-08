@@ -598,31 +598,9 @@ def get_server_deploy_public_key() -> str:
         return _deploy_public_key_cache
 
     with _deploy_key_lock:
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        with _deploy_key_lock:
         # Re-check inside the lock to handle concurrent first-call racing.
-        if _unused_deploy_public_key_cache is not None:
-            return _unused_deploy_public_key_cache
+        if _deploy_public_key_cache is not None:
+            return _deploy_public_key_cache
 
         priv_path = _DEPLOY_KEY_PATH
         pub_path = priv_path + ".pub"
@@ -630,8 +608,8 @@ def get_server_deploy_public_key() -> str:
         # Fast path: public key file already exists.
         try:
             with open(pub_path) as f:
-                _unused_deploy_public_key_cache = f.read().strip()
-                return _unused_deploy_public_key_cache
+                _deploy_public_key_cache = f.read().strip()
+                return _deploy_public_key_cache
         except FileNotFoundError:
             pass
         except OSError as exc:
