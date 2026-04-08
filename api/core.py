@@ -654,7 +654,12 @@ def get_server_deploy_public_key() -> str:
                         pub_path,
                     )
             except FileNotFoundError:
-                pass
+                # Public key file was not found after concurrent creation attempt;
+                # fall back to deriving it from the private key file below.
+                logger.debug(
+                    "Deploy public key file %s not found after concurrent creation attempt.",
+                    pub_path,
+                )
             except OSError as exc:
                 logger.warning(
                     "Could not read deploy public key at %s after concurrent creation: %s",
