@@ -135,5 +135,5 @@ document.addEventListener("click", function (e) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 0);
 });

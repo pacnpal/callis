@@ -277,6 +277,20 @@ async def delete_user(
     return RedirectResponse(url="/users", status_code=303)
 
 
+async def _check_key_limit(user_id: str, db: AsyncSession) -> None:
+    """Raise HTTP 400 if the user has reached the configured per-user key limit."""
+    max_keys = await get_runtime_setting("max_keys_per_user")
+    count_result = await db.execute(
+        select(func.count()).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+    )
+    current_count = count_result.scalar()
+    if current_count >= max_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {max_keys} keys per user",
+        )
+
+
 @router.post("/users/{user_id}/keys")
 async def upload_key(
     request: Request,
@@ -295,16 +309,7 @@ async def upload_key(
         raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
 
     # Check key limit
-    max_keys = await get_runtime_setting("max_keys_per_user")
-    count_result = await db.execute(
-        select(func.count()).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
-    )
-    current_count = count_result.scalar()
-    if current_count >= max_keys:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Maximum {max_keys} keys per user",
-        )
+    await _check_key_limit(user_id, db)
 
     # Validate and parse the key
     try:
@@ -413,16 +418,7 @@ async def generate_key(
         raise HTTPException(status_code=400, detail="Cannot generate keys for inactive user")
 
     # Check key limit
-    max_keys = await get_runtime_setting("max_keys_per_user")
-    count_result = await db.execute(
-        select(func.count()).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
-    )
-    current_count = count_result.scalar()
-    if current_count >= max_keys:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Maximum {max_keys} keys per user",
-        )
+    await _check_key_limit(user_id, db)
 
     # Default label when blank
     label = label.strip()
