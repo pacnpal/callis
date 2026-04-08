@@ -242,7 +242,7 @@ _callis_has_known_hosts_entries() {
 # any embedded single quotes so the result is safe for shell evaluation (e.g.,
 # inside a ProxyCommand string that OpenSSH passes to a shell).
 _callis_sq() {
-    printf '%s' "$1" | sed "s/'/'\\''/g; s/^/'/; s/\$/'/"
+    printf '%s' "$1" | sed "s/'/'\\''/g; s/^/'/; s/$/'/"
 }
 
 _callis_list() {
