@@ -90,17 +90,14 @@ _callis_setup() {
         echo "Error: could not set permissions on temporary config file." >&2
         return 1
     fi
-    if ! mv "$TMP_CONFIG_FILE" "$CALLIS_CONFIG_FILE"; then
-        rm -f "$TMP_CONFIG_FILE"
-        echo "Error: could not save configuration to ${CALLIS_CONFIG_FILE}." >&2
-        return 1
-    fi
 
     # Fetch the SSH host key, show its fingerprint, and require explicit user
     # confirmation before trusting it for future connections.
+    # The config temp file is not committed until both files are ready so that
+    # aborting or failing here never overwrites a previously working config.
     KNOWN_HOSTS_FILE="${CALLIS_CONFIG_DIR}/known_hosts"
     TMP_KNOWN_HOSTS_FILE=$(mktemp "${KNOWN_HOSTS_FILE}.tmp.XXXXXX") || {
-        rm -f "$CALLIS_CONFIG_FILE"
+        rm -f "$TMP_CONFIG_FILE"
         echo "Error: could not create temporary known_hosts file." >&2
         return 1
     }
@@ -108,13 +105,13 @@ _callis_setup() {
     FETCHED=$(ssh-keyscan -T 10 -p "$CALLIS_PORT" -t ed25519 "$CALLIS_HOST" 2>/dev/null)
     if [ -n "$FETCHED" ]; then
         if ! printf '%s\n' "$FETCHED" > "$TMP_KNOWN_HOSTS_FILE"; then
-            rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
             echo "Error: could not write SSH host key to temporary file." >&2
             return 1
         fi
         FINGERPRINT=$(ssh-keygen -lf "$TMP_KNOWN_HOSTS_FILE" 2>/dev/null)
         if [ -z "$FINGERPRINT" ]; then
-            rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
             echo "Error: could not compute SSH host key fingerprint for ${CALLIS_HOST}:${CALLIS_PORT}." >&2
             return 1
         fi
@@ -125,7 +122,7 @@ _callis_setup() {
         printf "Trust and save this host key? Type 'yes' to continue: "
         read -r TRUST_HOST_KEY
         if [ "$TRUST_HOST_KEY" != "yes" ]; then
-            rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
             echo "Host key was not saved. Setup aborted." >&2
             return 1
         fi
@@ -135,25 +132,32 @@ _callis_setup() {
             printf "Type 'yes' to overwrite the existing Callis host key: "
             read -r OVERWRITE_KNOWN_HOSTS
             if [ "$OVERWRITE_KNOWN_HOSTS" != "yes" ]; then
-                rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+                rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
                 echo "Existing host key was left unchanged. Setup aborted." >&2
                 return 1
             fi
         fi
 
         if ! mv "$TMP_KNOWN_HOSTS_FILE" "$KNOWN_HOSTS_FILE"; then
-            rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
             echo "Error: could not save SSH host key to ${KNOWN_HOSTS_FILE}." >&2
             return 1
         fi
         if ! chmod 600 "$KNOWN_HOSTS_FILE"; then
-            rm -f "$KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+            rm -f "$KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
             echo "Error: could not set permissions on ${KNOWN_HOSTS_FILE}." >&2
+            return 1
+        fi
+        # Both files are ready — atomically commit the config last so that
+        # any earlier abort leaves the previous config intact.
+        if ! mv "$TMP_CONFIG_FILE" "$CALLIS_CONFIG_FILE"; then
+            rm -f "$TMP_CONFIG_FILE" "$KNOWN_HOSTS_FILE"
+            echo "Error: could not save configuration to ${CALLIS_CONFIG_FILE}." >&2
             return 1
         fi
         echo "Setup complete. Configuration and host key saved."
     else
-        rm -f "$TMP_KNOWN_HOSTS_FILE" "$CALLIS_CONFIG_FILE"
+        rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
         echo "Error: could not fetch SSH host key from ${CALLIS_HOST}:${CALLIS_PORT}." >&2
         echo "Ensure the server is reachable and run 'callis setup' again." >&2
         return 1
@@ -267,7 +271,7 @@ _callis_connect() {
     # Validate bastion-supplied TARGET_HOST and TARGET_PORT to prevent shell
     # injection via OpenSSH's %h/%p substitution in ProxyCommand.
     case "$TARGET_HOST" in
-        ''|*[!A-Za-z0-9.-]*)
+        ''|*[!A-Za-z0-9._-]*)
             echo "Error: bastion returned an invalid target host" >&2
             return 1 ;;
     esac
