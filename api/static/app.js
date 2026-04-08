@@ -64,6 +64,19 @@ document.addEventListener("click", function (e) {
   }
 });
 
+// When the generate-key dialog closes, reset the form body so the private key
+// is no longer in the DOM if the dialog is reopened.
+(function () {
+  var genDialog = document.getElementById("generate-key-dialog");
+  var genKeyBody = document.getElementById("generate-key-body");
+  if (genDialog && genKeyBody) {
+    var _genKeyBodyInitial = genKeyBody.innerHTML;
+    genDialog.addEventListener("close", function () {
+      genKeyBody.innerHTML = _genKeyBodyInitial;
+    });
+  }
+}());
+
 // Copy-to-clipboard handler (SSH config and other copyable blocks)
 // Uses navigator.clipboard when available (requires HTTPS), falls back to
 // execCommand('copy') for HTTP/LAN deployments.

@@ -605,8 +605,10 @@ def get_server_deploy_public_key() -> str:
         import anyio
         key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
 
-    The result is cached in memory after the first successful read so that
-    subsequent calls return immediately without any I/O.
+    The result is cached in memory after the first call so that subsequent
+    calls return immediately without any I/O.  Persistent failures (e.g.
+    /data is not writable) are also cached as an empty string so that callers
+    do not repeatedly retry expensive I/O on every request.
     """
     global _deploy_public_key_cache
     # Lock-free fast path — avoids acquiring the lock on every call once cached.

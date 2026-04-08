@@ -59,6 +59,7 @@
             placeholder="ssh-ed25519 &lt;public-key&gt; comment"
             aria-describedby="public_key_help"></textarea>
   <p id="public_key_help" class="helper-text">Paste the contents of your <code>.pub</code> file. Accepted types: <strong>Ed25519</strong> (recommended) or <strong>RSA 4096-bit+</strong>. Generate one with: <code>ssh-keygen -t ed25519</code></p>
+  <p id="upload-error-msg" aria-live="polite" role="alert" class="text-error"></p>
   <button type="submit">Upload Key</button>
 </form>
 

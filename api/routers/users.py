@@ -1,3 +1,4 @@
+import html
 import logging
 from urllib.parse import urlparse
 from datetime import datetime, timezone
@@ -332,9 +333,18 @@ async def upload_key(
     await _check_key_limit(user_id, db)
 
     # Validate label
-    label = _validate_label(label)
-    if not label:
-        raise HTTPException(status_code=400, detail="Label cannot be blank")
+    try:
+        label = _validate_label(label)
+        if not label:
+            raise HTTPException(status_code=400, detail="Label cannot be blank")
+    except HTTPException as exc:
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                f'<span class="text-error">{html.escape(exc.detail)}</span>',
+                status_code=200,
+                headers={"HX-Retarget": "#upload-error-msg", "HX-Reswap": "innerHTML"},
+            )
+        raise
 
     # Validate and parse the key
     try:
@@ -446,7 +456,15 @@ async def generate_key(
     await _check_key_limit(user_id, db)
 
     # Default label when blank
-    label = _validate_label(label)
+    try:
+        label = _validate_label(label)
+    except HTTPException as exc:
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                f'<p class="text-error" role="alert">{html.escape(exc.detail)}</p>',
+                status_code=200,
+            )
+        raise
     if not label:
         label = f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
 
