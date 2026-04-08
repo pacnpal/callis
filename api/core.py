@@ -35,10 +35,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from models import AuditAction, AuditLog, Setting
 
-__all__ = [
-    "_deploy_public_key_cache",
-]
-
 logger = logging.getLogger("callis")
 
 
@@ -570,6 +566,16 @@ def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str |
             encoding=Encoding.OpenSSH,
             format=PublicFormat.OpenSSH,
         ).decode().strip()
+        try:
+            parse_ssh_public_key(pub_text)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Derived public key from %s is not a valid SSH public key; "
+                "falling back to generating a fresh keypair: %s",
+                priv_path,
+                exc,
+            )
+            return None
         try:
             with open(pub_path, "w") as fh:
                 fh.write(pub_text + "\n")
