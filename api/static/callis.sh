@@ -252,8 +252,10 @@ _callis_load_config() {
 
 _callis_has_known_hosts_entries() {
     known_hosts_file="$1"
-    [ -s "$known_hosts_file" ] || return 1
-    grep -Eq '^[[:space:]]*[^#[:space:]]' "$known_hosts_file"
+    # Use -r (readable) instead of -s (non-empty) so unreadable files are
+    # rejected cleanly; the grep handles empty files by returning non-zero.
+    [ -r "$known_hosts_file" ] || return 1
+    grep -Eq '^[[:space:]]*[^#[:space:]]' "$known_hosts_file" 2>/dev/null
 }
 
 # POSIX single-quote escaping: wraps the argument in single quotes and escapes
@@ -368,8 +370,14 @@ _callis_connect() {
         fi
         case "$_ua" in
             --) break ;;
+            # Options that take a next argument as a *separate* token.
+            # When the value is concatenated in the same token (e.g.,
+            # -L8080:host:port or -oStrictHostKeyChecking=yes), the token
+            # length is > 2 and the value is already present, so do NOT
+            # set _skip_next in that case.
             -b|-c|-D|-E|-e|-F|-I|-i|-J|-L|-l|-m|-o|-p|-Q|-R|-S|-w|-W)
-                _nflags=$((_nflags + 1)); _skip_next=1 ;;
+                _nflags=$((_nflags + 1))
+                if [ "${#_ua}" -eq 2 ]; then _skip_next=1; fi ;;
             -*) _nflags=$((_nflags + 1)) ;;
             *)  break ;;
         esac
