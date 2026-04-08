@@ -613,12 +613,16 @@ def get_server_deploy_public_key() -> str:
             with open(pub_path) as f:
                 first_line = f.readline().strip()
             if first_line:
-                if not any(ord(c) < 32 or ord(c) == 127 for c in first_line):
+                try:
+                    parse_ssh_public_key(first_line)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Deploy public key file %s is not a valid SSH public key; ignoring.",
+                        pub_path,
+                    )
+                else:
                     _deploy_public_key_cache = first_line
                     return _deploy_public_key_cache
-                logger.warning(
-                    "Deploy public key file %s has unexpected format; ignoring.", pub_path
-                )
         except FileNotFoundError:
             # Missing public key file is expected on first run; derive or generate it below.
             pass
@@ -651,13 +655,16 @@ def get_server_deploy_public_key() -> str:
                 with open(pub_path) as f:
                     first_line = f.readline().strip()
                 if first_line:
-                    if not any(ord(c) < 32 or ord(c) == 127 for c in first_line):
+                    try:
+                        parse_ssh_public_key(first_line)
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "Deploy public key file %s is not a valid SSH public key after concurrent creation; ignoring.",
+                            pub_path,
+                        )
+                    else:
                         _deploy_public_key_cache = first_line
                         return _deploy_public_key_cache
-                    logger.warning(
-                        "Deploy public key file %s has unexpected format after concurrent creation; ignoring.",
-                        pub_path,
-                    )
             except FileNotFoundError:
                 # Public key file was not found after concurrent creation attempt;
                 # fall back to deriving it from the private key file below.
