@@ -707,6 +707,7 @@ def get_server_deploy_public_key() -> str:
                 "returning empty string.",
                 priv_path,
             )
+            _deploy_public_key_cache = ""
             return ""
         except (PermissionError, OSError) as exc:
             logger.warning(
