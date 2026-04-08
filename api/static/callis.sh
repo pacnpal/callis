@@ -262,7 +262,7 @@ _callis_has_known_hosts_entries() {
 # any embedded single quotes so the result is safe for shell evaluation (e.g.,
 # inside a ProxyCommand string that OpenSSH passes to a shell).
 _callis_sq() {
-    printf '%s' "$1" | sed "s/'/'\\''/g; s/^/'/; s/$/'/"
+    printf '%s' "$1" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/"
 }
 
 _callis_list() {
@@ -405,19 +405,22 @@ _callis_connect() {
     _sq_dest=$(_callis_sq "${CALLIS_USER}@${TARGET_HOST}")
     _sq_known=$(_callis_sq "${HOME}/.ssh/known_hosts")
 
-    # Enforced security options come first so they take precedence (first-
-    # occurrence wins in OpenSSH).  User option flags follow, then the fixed
-    # destination, then any user-supplied remote command arguments.
+    # Enforced -o options come first so they take precedence (first-occurrence
+    # wins in OpenSSH for -o flags).  User option flags follow.  -p comes after
+    # user flags because OpenSSH uses last-occurrence semantics for -p, so
+    # placing it last ensures the bastion-resolved target port cannot be
+    # overridden by a user-supplied -p flag.  The fixed destination follows,
+    # then any user-supplied remote command arguments.
     # shellcheck disable=SC2086
     eval ssh \
         -i "$_sq_key" \
-        -p "$TARGET_PORT" \
         -o BatchMode=yes \
         -o StrictHostKeyChecking=yes \
         -o GlobalKnownHostsFile=/dev/null \
         -o "UserKnownHostsFile=$_sq_known" \
         -o "ProxyCommand=$_sq_proxy" \
         ${_uf} \
+        -p "$TARGET_PORT" \
         "$_sq_dest" \
         ${_uc}
 }
