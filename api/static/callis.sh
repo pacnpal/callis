@@ -258,11 +258,22 @@ _callis_has_known_hosts_entries() {
     grep -Eq '^[[:space:]]*[^#[:space:]]' "$known_hosts_file" 2>/dev/null
 }
 
-# POSIX single-quote escaping: wraps the argument in single quotes and escapes
-# any embedded single quotes so the result is safe for shell evaluation (e.g.,
-# inside a ProxyCommand string that OpenSSH passes to a shell).
+# POSIX single-quote escaping: wraps the argument in single quotes and replaces
+# each embedded ' with '\'' (end-quote, backslash-escaped literal quote,
+# reopen-quote) so the result is safe for shell evaluation (e.g., inside a
+# ProxyCommand string that OpenSSH passes to a shell).
+# Example: _callis_sq "it's" produces 'it'\''s' which eval reproduces "it's".
 _callis_sq() {
-    printf '%s' "$1" | sed "s/'/'\\\\''/g; s/^/'/; s/$/'/"
+    _sq_out=''
+    _sq_in="$1"
+    while [ -n "$_sq_in" ]; do
+        _sq_head="${_sq_in%%\'*}"
+        _sq_out="${_sq_out}${_sq_head}"
+        [ "$_sq_in" = "$_sq_head" ] && break
+        _sq_out="${_sq_out}'\\''"
+        _sq_in="${_sq_in#*\'}"
+    done
+    printf "'%s'" "$_sq_out"
 }
 
 _callis_list() {
