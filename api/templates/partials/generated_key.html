@@ -1,0 +1,25 @@
+<div class="generated-key-display">
+  <div class="flash flash-error" role="alert">
+    <strong>⚠ Save this private key now.</strong> Copy or download it before closing this dialog.
+  </div>
+  <p class="text-small text-muted">
+    <strong>Label:</strong> {{ label }} &mdash;
+    <strong>Type:</strong> <code>ssh-ed25519</code> &mdash;
+    <strong>Fingerprint:</strong> <code>{{ fingerprint }}</code>
+  </p>
+  <div class="ssh-config-actions">
+    <button type="button" class="outline btn-sm" data-copy-trigger="generated-private-key">Copy</button>
+    <button type="button" class="outline btn-sm" data-download-key="id_ed25519" data-key-source="generated-private-key">Download</button>
+  </div>
+  <pre class="ssh-config" data-copy-target="generated-private-key">{{ private_key }}</pre>
+  <p class="text-small text-muted">
+    Save this file as <code>~/.ssh/id_ed25519</code> (or a name of your choice) and set its permissions:
+    <code>chmod 600 ~/.ssh/id_ed25519</code>.
+    Update your SSH config's <code>IdentityFile</code> to point to the file you saved.
+  </p>
+  <button type="button" data-dialog-close class="secondary">I've saved my key &mdash; Close</button>
+</div>
+
+<div id="key-list" hx-swap-oob="true">
+  {% include "partials/key_list.html" %}
+</div>

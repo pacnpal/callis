@@ -1,4 +1,7 @@
+import html
+import logging
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -7,11 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import RESERVED_USERNAMES, USERNAME_RE, get_db, get_runtime_setting, get_settings, hash_password, parse_ssh_public_key, register_template_filters, write_audit_log
+from core import RESERVED_USERNAMES, USERNAME_RE, generate_ssh_keypair, get_db, get_runtime_setting, get_settings, hash_password, parse_ssh_public_key, register_template_filters, write_audit_log
 from dependencies import require_admin_or_self, require_role
 from models import AuditAction, SSHKey, User, UserRole
 
 router = APIRouter()
+logger = logging.getLogger("callis")
 templates = Jinja2Templates(directory="templates")
 register_template_filters(templates)
 
@@ -274,6 +278,40 @@ async def delete_user(
     return RedirectResponse(url="/users", status_code=303)
 
 
+_LABEL_MAX_LEN = 100
+
+
+def _validate_label(label: str) -> str:
+    """Strip and validate a key label.
+
+    Returns the stripped label, or raises HTTP 400 if the label contains
+    control characters or exceeds the maximum allowed length.
+    """
+    label = label.strip()
+    if any(ord(c) < 32 or ord(c) == 127 for c in label):
+        raise HTTPException(status_code=400, detail="Label must not contain control characters")
+    if len(label) > _LABEL_MAX_LEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Label must not exceed {_LABEL_MAX_LEN} characters",
+        )
+    return label
+
+
+async def _check_key_limit(user_id: str, db: AsyncSession) -> None:
+    """Raise HTTP 400 if the user has reached the configured per-user key limit."""
+    max_keys = await get_runtime_setting("max_keys_per_user")
+    count_result = await db.execute(
+        select(func.count()).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+    )
+    current_count = count_result.scalar()
+    if current_count >= max_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {max_keys} keys per user",
+        )
+
+
 @router.post("/users/{user_id}/keys")
 async def upload_key(
     request: Request,
@@ -288,37 +326,44 @@ async def upload_key(
     target = target_result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    if not target.is_active:
-        raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
 
-    # Check key limit
-    max_keys = await get_runtime_setting("max_keys_per_user")
-    count_result = await db.execute(
-        select(func.count()).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
-    )
-    current_count = count_result.scalar()
-    if current_count >= max_keys:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Maximum {max_keys} keys per user",
-        )
-
-    # Validate and parse the key
     try:
-        key_info = parse_ssh_public_key(public_key)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        if not target.is_active:
+            raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
 
-    # Check for duplicate fingerprint
-    dup_result = await db.execute(
-        select(SSHKey).where(
-            SSHKey.user_id == user_id,
-            SSHKey.fingerprint == key_info["fingerprint"],
-            SSHKey.is_active == True,
+        # Check key limit
+        await _check_key_limit(user_id, db)
+
+        # Validate label
+        label = _validate_label(label)
+        if not label:
+            raise HTTPException(status_code=400, detail="Label cannot be blank")
+
+        # Validate and parse the key
+        try:
+            key_info = parse_ssh_public_key(public_key)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Check for duplicate fingerprint
+        dup_result = await db.execute(
+            select(SSHKey).where(
+                SSHKey.user_id == user_id,
+                SSHKey.fingerprint == key_info["fingerprint"],
+                SSHKey.is_active == True,
+            )
         )
-    )
-    if dup_result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="This key is already registered")
+        if dup_result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="This key is already registered")
+
+    except HTTPException as exc:
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                f'<span class="text-error">{html.escape(exc.detail)}</span>',
+                status_code=200,
+                headers={"HX-Retarget": "#upload-error-msg", "HX-Reswap": "innerHTML"},
+            )
+        raise
 
     new_key = SSHKey(
         user_id=user_id,
@@ -341,7 +386,7 @@ async def upload_key(
     )
 
     if request.headers.get("HX-Request"):
-        # Return updated key list partial
+        # Return updated key list partial (key_list.html includes an OOB clear for #upload-error-msg).
         result = await db.execute(
             select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
         )
@@ -391,3 +436,129 @@ async def revoke_key(
             context={"keys": keys, "target_user_id": user_id, "user": user},
         )
     return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)
+
+
+@router.post("/users/{user_id}/keys/generate")
+async def generate_key(
+    request: Request,
+    user_id: str,
+    label: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_self),
+):
+    # Verify target user exists and is active
+    target_result = await db.execute(select(User).where(User.id == user_id))
+    target = target_result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        if not target.is_active:
+            raise HTTPException(status_code=400, detail="Cannot generate keys for inactive user")
+
+        # Check key limit
+        await _check_key_limit(user_id, db)
+
+        # Default label when blank
+        label = _validate_label(label)
+        if not label:
+            label = f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
+
+    except HTTPException as exc:
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                html.escape(exc.detail),
+                status_code=200,
+                headers={
+                    "HX-Retarget": "#generate-key-error",
+                    "HX-Reswap": "innerHTML",
+                },
+            )
+        raise
+
+    # Generate Ed25519 keypair; use username as the key comment
+    private_key_text, public_key_text = generate_ssh_keypair(comment=target.username)
+
+    try:
+        key_info = parse_ssh_public_key(public_key_text)
+    except ValueError as e:
+        safe_user_id = (user_id or "").replace("\r", "").replace("\n", "")
+        logger.exception("Key generation internal error for user %s: %s", safe_user_id, e)
+        raise HTTPException(status_code=500, detail="Key generation failed")
+
+    # Check for duplicate fingerprint (generated keys are unique in practice, but guard anyway)
+    dup_result = await db.execute(
+        select(SSHKey).where(
+            SSHKey.user_id == user_id,
+            SSHKey.fingerprint == key_info["fingerprint"],
+            SSHKey.is_active == True,
+        )
+    )
+    if dup_result.scalar_one_or_none():
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                "This key is already registered",
+                status_code=200,
+                headers={
+                    "HX-Retarget": "#generate-key-error",
+                    "HX-Reswap": "innerHTML",
+                },
+            )
+        raise HTTPException(status_code=400, detail="This key is already registered")
+
+    new_key = SSHKey(
+        user_id=user_id,
+        label=label,
+        public_key_text=key_info["public_key_text"],
+        fingerprint=key_info["fingerprint"],
+        key_type=key_info["key_type"],
+    )
+    db.add(new_key)
+    await db.flush()
+
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.KEY_ADDED,
+        target_type="key",
+        target_id=new_key.id,
+        source_ip=request.client.host if request.client else None,
+        detail={
+            "fingerprint": key_info["fingerprint"],
+            "key_type": key_info["key_type"],
+            "label": label,
+            "generated": True,
+        },
+    )
+
+    # Fetch updated key list for the out-of-band swap
+    keys_result = await db.execute(
+        select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+    )
+    keys = keys_result.scalars().all()
+
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request,
+            "partials/generated_key.html",
+            context={
+                "private_key": private_key_text,
+                "label": label,
+                "fingerprint": key_info["fingerprint"],
+                "keys": keys,
+                "target_user_id": user_id,
+                "user": user,
+            },
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+
+    safe_user_id = str(user_id).replace("\r", "").replace("\n", "")
+    logger.warning(
+        "Rejected non-HTMX SSH key generation response for user_id=%s",
+        safe_user_id,
+    )
+    return HTMLResponse(
+        content="SSH key generation requires the HTMX-enabled web UI.",
+        status_code=400,
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )

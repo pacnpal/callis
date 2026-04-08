@@ -6,6 +6,7 @@ import re
 import secrets
 import stat as _stat
 import struct
+import threading
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -16,6 +17,14 @@ from sqlalchemy import select
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+    PublicFormat,
+    load_ssh_private_key,
+)
 import jwt
 from jwt.exceptions import PyJWTError as JWTError
 import bcrypt
@@ -485,6 +494,237 @@ def _check_rsa_key_size(key_data: bytes, min_bits: int) -> None:
 
     if key_bits < min_bits:
         raise ValueError(f"RSA key is {key_bits} bits, minimum {min_bits} required")
+
+
+# ---------------------------------------------------------------------------
+# SSH Keypair Generation
+# ---------------------------------------------------------------------------
+
+def generate_ssh_keypair(comment: str = "") -> tuple[str, str]:
+    """Generate an Ed25519 SSH keypair.
+
+    Returns:
+        (private_key_openssh: str, public_key_openssh: str)
+
+    The private key is in OpenSSH PEM format.  The public key is a single
+    authorized_keys line; an optional comment is appended when provided.
+    """
+    private_key = Ed25519PrivateKey.generate()
+    private_key_text = private_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.OpenSSH,
+        encryption_algorithm=NoEncryption(),
+    ).decode()
+    public_key_text = private_key.public_key().public_bytes(
+        encoding=Encoding.OpenSSH,
+        format=PublicFormat.OpenSSH,
+    ).decode().rstrip()
+    if comment:
+        # Strip and reject control characters to ensure the public key line
+        # remains a single valid authorized_keys entry.
+        comment = comment.strip()
+        if any(ord(c) < 32 or ord(c) == 127 for c in comment):
+            raise ValueError("SSH key comment must not contain control characters")
+        if comment:
+            public_key_text = f"{public_key_text} {comment}"
+    return private_key_text, public_key_text
+
+
+_DEPLOY_KEY_PATH = "/data/callis_deploy_key"
+_deploy_public_key_cache: str | None = None
+# This cache is process-local. In multi-worker deployments, each worker process
+# maintains its own copy. The lock below protects concurrent initialisation when
+# get_server_deploy_public_key() is offloaded to a thread pool.
+_deploy_key_lock = threading.Lock()
+
+
+def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str | None:
+    """Load the deploy private key from *priv_path* and return its OpenSSH public key.
+
+    Writes the derived public key to *pub_path* as a side-effect when possible.
+    Returns ``None`` if the file is missing; returns ``None`` and logs a warning
+    if the file is unreadable or has insecure permissions that cannot be tightened.
+    """
+    try:
+        st = os.stat(priv_path)
+        mode = _stat.S_IMODE(st.st_mode)
+        if mode & 0o077:
+            try:
+                os.chmod(priv_path, 0o600)
+            except OSError as exc:
+                logger.warning(
+                    "Deploy private key at %s has insecure permissions %s and could not be tightened: %s",
+                    priv_path,
+                    oct(mode),
+                    exc,
+                )
+                return None
+        with open(priv_path, "rb") as f:
+            priv_bytes = f.read()
+        priv = load_ssh_private_key(priv_bytes, password=None)
+        pub_text = priv.public_key().public_bytes(
+            encoding=Encoding.OpenSSH,
+            format=PublicFormat.OpenSSH,
+        ).decode().strip()
+        try:
+            parse_ssh_public_key(pub_text)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Derived public key from %s is not a valid SSH public key; "
+                "falling back to generating a fresh keypair: %s",
+                priv_path,
+                exc,
+            )
+            return None
+        # Validation passed — persist and return the derived public key.
+        try:
+            with open(pub_path, "w") as fh:
+                fh.write(pub_text + "\n")
+        except OSError as exc:
+            logger.warning("Could not write deploy public key to %s: %s", pub_path, exc)
+        return pub_text
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        logger.warning("Could not load deploy private key at %s: %s", priv_path, exc)
+        return None
+
+
+def get_server_deploy_public_key() -> str:
+    """Return Callis's server deploy public key, generating it if needed.
+
+    The keypair is persisted to /data/callis_deploy_key[.pub].  Returns the
+    OpenSSH public key as a single-line string, or an empty string if the key
+    cannot be generated (e.g. /data is not writable in dev without Docker).
+
+    **Blocking:** this function performs synchronous disk I/O (stat, open, read,
+    chmod, and possibly key generation and file writes).  It must not be called
+    directly from async request handlers.  Call it at application startup (e.g.
+    in the FastAPI ``lifespan`` function) or offload it to a thread pool::
+
+        import anyio
+        key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
+
+    The result is cached in memory after the first call so that subsequent
+    calls return immediately without any I/O.  Persistent failures (e.g.
+    /data is not writable) are also cached as an empty string so that callers
+    do not repeatedly retry expensive I/O on every request.
+    """
+    global _deploy_public_key_cache
+    # Lock-free fast path — avoids acquiring the lock on every call once cached.
+    if _deploy_public_key_cache is not None:
+        return _deploy_public_key_cache
+
+    with _deploy_key_lock:
+        # Re-check inside the lock to handle concurrent first-call racing.
+        if _deploy_public_key_cache is not None:
+            return _deploy_public_key_cache
+
+        priv_path = _DEPLOY_KEY_PATH
+        pub_path = priv_path + ".pub"
+
+        # Fast path: public key file already exists.
+        try:
+            with open(pub_path) as f:
+                first_line = f.readline().strip()
+            if first_line:
+                try:
+                    parse_ssh_public_key(first_line)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Deploy public key file %s is not a valid SSH public key; ignoring.",
+                        pub_path,
+                    )
+                else:
+                    _deploy_public_key_cache = first_line
+                    return _deploy_public_key_cache
+        except FileNotFoundError:
+            # Missing public key file is expected on first run; derive or generate it below.
+            pass
+        except OSError as exc:
+            logger.warning(
+                "Could not read deploy public key at %s: %s; "
+                "falling through to derive/generate.",
+                pub_path, exc,
+            )
+            # Fall through to deriving from the private key or generating a new keypair.
+
+        # Private key exists but public key file is missing or unreadable — derive it.
+        pub_text = _derive_public_key_from_private_file(priv_path, pub_path)
+        if pub_text is not None:
+            _deploy_public_key_cache = pub_text
+            return pub_text
+
+        # Generate a fresh keypair and persist it.
+        private_key_text, public_key_text = generate_ssh_keypair(comment="callis@deploy")
+        public_key_text = public_key_text.strip()
+        try:
+            os.makedirs(os.path.dirname(priv_path), exist_ok=True)
+        except (OSError, ValueError) as exc:
+            logger.warning("Could not create directory for deploy key at %s: %s", priv_path, exc)
+        try:
+            fd = os.open(priv_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(private_key_text)
+        except FileExistsError:
+            # File was created between our check and the open call (e.g. by another
+            # process on first startup). Try to read the key they persisted; fall
+            # back to deriving it from the private key file.
+            try:
+                with open(pub_path) as f:
+                    first_line = f.readline().strip()
+                if first_line:
+                    try:
+                        parse_ssh_public_key(first_line)
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "Deploy public key file %s is not a valid SSH public key after concurrent creation; ignoring.",
+                            pub_path,
+                        )
+                    else:
+                        _deploy_public_key_cache = first_line
+                        return _deploy_public_key_cache
+            except FileNotFoundError:
+                # Public key file was not found after concurrent creation attempt;
+                # fall back to deriving it from the private key file below.
+                logger.debug(
+                    "Deploy public key file %s not found after concurrent creation attempt.",
+                    pub_path,
+                )
+            except OSError as exc:
+                logger.warning(
+                    "Could not read deploy public key at %s after concurrent creation: %s",
+                    pub_path, exc,
+                )
+
+            derived = _derive_public_key_from_private_file(priv_path, pub_path)
+            if derived is not None:
+                _deploy_public_key_cache = derived
+                return _deploy_public_key_cache
+
+            logger.warning(
+                "Could not recover deploy public key after concurrent creation at %s; "
+                "returning empty string. Cache left unset so the next call can retry.",
+                priv_path,
+            )
+            return ""
+        except (PermissionError, OSError) as exc:
+            logger.warning(
+                "Could not persist server deploy key to %s: %s. "
+                "Returning empty string because the generated key is not durable.",
+                priv_path,
+                exc,
+            )
+            _deploy_public_key_cache = ""
+            return ""
+        try:
+            with open(pub_path, "w") as f:
+                f.write(public_key_text + "\n")
+        except (PermissionError, OSError) as exc:
+            logger.warning("Could not write deploy public key to %s: %s", pub_path, exc)
+        logger.info("Generated Callis server deploy key and saved to %s", priv_path)
+        _deploy_public_key_cache = public_key_text
+        return public_key_text
 
 
 # ---------------------------------------------------------------------------

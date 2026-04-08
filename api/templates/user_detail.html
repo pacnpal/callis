@@ -38,8 +38,12 @@
 
 <div class="page-header">
   <h3>SSH Keys</h3>
+  {% if target_user.is_active %}
+  <button type="button" class="outline btn-sm" data-dialog-open="generate-key-dialog">Generate Key</button>
+  {% endif %}
 </div>
 
+{% if target_user.is_active %}
 <form method="post" action="/users/{{ target_user.id }}/keys"
       hx-post="/users/{{ target_user.id }}/keys" hx-target="#key-list" hx-swap="innerHTML"
       class="key-upload-form">
@@ -56,8 +60,12 @@
             placeholder="ssh-ed25519 &lt;public-key&gt; comment"
             aria-describedby="public_key_help"></textarea>
   <p id="public_key_help" class="helper-text">Paste the contents of your <code>.pub</code> file. Accepted types: <strong>Ed25519</strong> (recommended) or <strong>RSA 4096-bit+</strong>. Generate one with: <code>ssh-keygen -t ed25519</code></p>
+  <p id="upload-error-msg" aria-live="polite" role="alert" class="text-error"></p>
   <button type="submit">Upload Key</button>
 </form>
+{% else %}
+<p class="text-muted">Key management is disabled for inactive users.</p>
+{% endif %}
 
 <div id="key-list">
   {% if keys %}
@@ -107,4 +115,26 @@
 <div class="ssh-config-section">
   {% include "partials/ssh_config.html" %}
 </div>
+
+<dialog id="generate-key-dialog">
+  <article>
+    <header>
+      <button type="button" aria-label="Close" data-dialog-close></button>
+      <h3>Generate SSH Key</h3>
+    </header>
+    <div id="generate-key-body">
+      <p class="text-small text-muted">A new Ed25519 key pair will be generated. Copy or download the private key immediately — it cannot be recovered after this session.</p>
+      <form method="post" action="/users/{{ target_user.id }}/keys/generate"
+            hx-post="/users/{{ target_user.id }}/keys/generate"
+            hx-target="#generate-key-body" hx-swap="innerHTML">
+        <label for="gen-label">Key Label</label>
+        <input type="text" id="gen-label" name="label" placeholder="e.g. Work Laptop"
+               aria-describedby="gen_label_help">
+        <p id="gen_label_help" class="helper-text">A name to identify this key (e.g. the device it belongs to). Leave blank for a default name.</p>
+        <p id="generate-key-error" aria-live="polite" role="alert" class="text-error"></p>
+        <button type="submit">Generate Key</button>
+      </form>
+    </div>
+  </article>
+</dialog>
 {% endblock %}

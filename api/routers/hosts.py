@@ -1,6 +1,7 @@
 import re
 from urllib.parse import urlparse
 
+import anyio
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -8,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_runtime_setting, get_settings, register_template_filters, slugify, write_audit_log
+from core import get_db, get_runtime_setting, get_settings, get_server_deploy_public_key, register_template_filters, slugify, write_audit_log
 from dependencies import require_role, require_totp_complete
 from models import AuditAction, Host, User, UserRole
 
@@ -35,16 +36,18 @@ async def host_list(
 
     # Load all active users for assignment dropdowns (admin only)
     all_users = []
+    server_deploy_key = ""
     if user.role == UserRole.admin:
         users_result = await db.execute(
             select(User).where(User.is_active == True).order_by(User.username)
         )
         all_users = users_result.scalars().all()
+        server_deploy_key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
 
     return templates.TemplateResponse(
         request,
         "hosts.html",
-        context={"hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
+        context={"hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users, "server_deploy_key": server_deploy_key},
     )
 
 
@@ -66,13 +69,15 @@ async def create_host(
         )
         all_hosts = result.scalars().all()
         au = []
+        server_deploy_key = ""
         if user.role == UserRole.admin:
             ur = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
             au = ur.scalars().all()
+            server_deploy_key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
         return templates.TemplateResponse(
             request,
             "hosts.html",
-            context={"error": detail, "hosts": all_hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": au},
+            context={"error": detail, "hosts": all_hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": au, "server_deploy_key": server_deploy_key},
             status_code=400,
         )
 
