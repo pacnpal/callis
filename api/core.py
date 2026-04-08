@@ -707,7 +707,6 @@ def get_server_deploy_public_key() -> str:
                 "returning empty string.",
                 priv_path,
             )
-            _deploy_public_key_cache = ""
             return ""
         except (PermissionError, OSError) as exc:
             logger.warning(
@@ -716,7 +715,6 @@ def get_server_deploy_public_key() -> str:
                 priv_path,
                 exc,
             )
-            _deploy_public_key_cache = ""
             return ""
         try:
             with open(pub_path, "w") as f:
