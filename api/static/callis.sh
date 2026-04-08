@@ -157,7 +157,11 @@ _callis_setup() {
         fi
 
         if ! mv "$TMP_KNOWN_HOSTS_FILE" "$KNOWN_HOSTS_FILE"; then
-            rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE" "$BACKUP_KNOWN_HOSTS"
+            if [ -n "$BACKUP_KNOWN_HOSTS" ]; then
+                rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE" "$BACKUP_KNOWN_HOSTS"
+            else
+                rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
+            fi
             echo "Error: could not save SSH host key to ${KNOWN_HOSTS_FILE}." >&2
             return 1
         fi
@@ -185,7 +189,9 @@ _callis_setup() {
             echo "Error: could not save configuration to ${CALLIS_CONFIG_FILE}." >&2
             return 1
         fi
-        rm -f "$BACKUP_KNOWN_HOSTS"
+        if [ -n "$BACKUP_KNOWN_HOSTS" ]; then
+            rm -f "$BACKUP_KNOWN_HOSTS"
+        fi
         echo "Setup complete. Configuration and host key saved."
     else
         rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
