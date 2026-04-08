@@ -6,6 +6,7 @@ import re
 import secrets
 import stat as _stat
 import struct
+import threading
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -525,9 +526,10 @@ def generate_ssh_keypair(comment: str = "") -> tuple[str, str]:
 
 _DEPLOY_KEY_PATH = "/data/callis_deploy_key"
 _deploy_public_key_cache: str | None = None
-# Note: Callis runs as a single-worker asyncio process (uvicorn --workers 1),
-# so _deploy_public_key_cache is only accessed from one thread. Multi-worker
-# deployments use separate OS processes, each with their own cache.
+# This cache is process-local. In multi-worker deployments, each worker process
+# maintains its own copy. The lock below protects concurrent initialisation when
+# get_server_deploy_public_key() is offloaded to a thread pool.
+_deploy_key_lock = threading.Lock()
 
 
 def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str | None:
@@ -590,43 +592,19 @@ def get_server_deploy_public_key() -> str:
     subsequent calls return immediately without any I/O.
     """
     global _deploy_public_key_cache
+    # Lock-free fast path — avoids acquiring the lock on every call once cached.
     if _deploy_public_key_cache is not None:
         return _deploy_public_key_cache
 
-    priv_path = _DEPLOY_KEY_PATH
-    pub_path = priv_path + ".pub"
-
-    # Fast path: public key file already exists.
-    try:
-        with open(pub_path) as f:
-            _deploy_public_key_cache = f.read().strip()
+    with _deploy_key_lock:
+        # Re-check inside the lock to handle concurrent first-call racing.
+        if _deploy_public_key_cache is not None:
             return _deploy_public_key_cache
-    except FileNotFoundError:
-        pass
-    except OSError as exc:
-        logger.warning("Could not read deploy public key at %s: %s", pub_path, exc)
-        return ""
 
-    # Private key exists but public key file is missing — derive it.
-    pub_text = _derive_public_key_from_private_file(priv_path, pub_path)
-    if pub_text is not None:
-        _deploy_public_key_cache = pub_text
-        return pub_text
+        priv_path = _DEPLOY_KEY_PATH
+        pub_path = priv_path + ".pub"
 
-    # Generate a fresh keypair and persist it.
-    private_key_text, public_key_text = generate_ssh_keypair(comment="callis@deploy")
-    public_key_text = public_key_text.strip()
-    try:
-        os.makedirs(os.path.dirname(priv_path), exist_ok=True)
-    except (OSError, ValueError) as exc:
-        logger.warning("Could not create directory for deploy key at %s: %s", priv_path, exc)
-    try:
-        fd = os.open(priv_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(private_key_text)
-    except FileExistsError:
-        # Another concurrent call beat us.  Try to read the key they persisted;
-        # return empty string rather than a mismatched in-memory key if that fails.
+        # Fast path: public key file already exists.
         try:
             with open(pub_path) as f:
                 _deploy_public_key_cache = f.read().strip()
@@ -634,38 +612,69 @@ def get_server_deploy_public_key() -> str:
         except FileNotFoundError:
             pass
         except OSError as exc:
+            logger.warning("Could not read deploy public key at %s: %s", pub_path, exc)
+            return ""
+
+        # Private key exists but public key file is missing — derive it.
+        pub_text = _derive_public_key_from_private_file(priv_path, pub_path)
+        if pub_text is not None:
+            _deploy_public_key_cache = pub_text
+            return pub_text
+
+        # Generate a fresh keypair and persist it.
+        private_key_text, public_key_text = generate_ssh_keypair(comment="callis@deploy")
+        public_key_text = public_key_text.strip()
+        try:
+            os.makedirs(os.path.dirname(priv_path), exist_ok=True)
+        except (OSError, ValueError) as exc:
+            logger.warning("Could not create directory for deploy key at %s: %s", priv_path, exc)
+        try:
+            fd = os.open(priv_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(private_key_text)
+        except FileExistsError:
+            # File was created between our check and the open call (e.g. by another
+            # process on first startup). Try to read the key they persisted; fall
+            # back to deriving it from the private key file.
+            try:
+                with open(pub_path) as f:
+                    _deploy_public_key_cache = f.read().strip()
+                    return _deploy_public_key_cache
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                logger.warning(
+                    "Could not read deploy public key at %s after concurrent creation: %s",
+                    pub_path, exc,
+                )
+
+            derived = _derive_public_key_from_private_file(priv_path, pub_path)
+            if derived is not None:
+                _deploy_public_key_cache = derived
+                return _deploy_public_key_cache
+
             logger.warning(
-                "Could not read deploy public key at %s after concurrent creation: %s",
-                pub_path, exc,
+                "Could not recover deploy public key after concurrent creation at %s; "
+                "returning empty string.",
+                priv_path,
             )
-
-        derived = _derive_public_key_from_private_file(priv_path, pub_path)
-        if derived is not None:
-            _deploy_public_key_cache = derived
-            return _deploy_public_key_cache
-
-        logger.warning(
-            "Could not recover deploy public key after concurrent creation at %s; "
-            "returning empty string.",
-            priv_path,
-        )
-        return ""
-    except (PermissionError, OSError) as exc:
-        logger.warning(
-            "Could not persist server deploy key to %s: %s. "
-            "Returning empty string because the generated key is not durable.",
-            priv_path,
-            exc,
-        )
-        return ""
-    try:
-        with open(pub_path, "w") as f:
-            f.write(public_key_text + "\n")
-    except (PermissionError, OSError) as exc:
-        logger.warning("Could not write deploy public key to %s: %s", pub_path, exc)
-    logger.info("Generated Callis server deploy key and saved to %s", priv_path)
-    _deploy_public_key_cache = public_key_text
-    return public_key_text
+            return ""
+        except (PermissionError, OSError) as exc:
+            logger.warning(
+                "Could not persist server deploy key to %s: %s. "
+                "Returning empty string because the generated key is not durable.",
+                priv_path,
+                exc,
+            )
+            return ""
+        try:
+            with open(pub_path, "w") as f:
+                f.write(public_key_text + "\n")
+        except (PermissionError, OSError) as exc:
+            logger.warning("Could not write deploy public key to %s: %s", pub_path, exc)
+        logger.info("Generated Callis server deploy key and saved to %s", priv_path)
+        _deploy_public_key_cache = public_key_text
+        return public_key_text
 
 
 # ---------------------------------------------------------------------------

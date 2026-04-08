@@ -434,9 +434,9 @@ async def generate_key(
 
     try:
         key_info = parse_ssh_public_key(public_key_text)
-    except ValueError:
+    except ValueError as e:
         safe_user_id = (user_id or "").replace("\r", "").replace("\n", "")
-        logger.error("Key generation internal error for user %s: %s", safe_user_id, e)
+        logger.exception("Key generation internal error for user %s: %s", safe_user_id, e)
         raise HTTPException(status_code=500, detail="Key generation failed")
 
     new_key = SSHKey(
