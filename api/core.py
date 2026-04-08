@@ -524,7 +524,13 @@ def generate_ssh_keypair(comment: str = "") -> tuple[str, str]:
         format=PublicFormat.OpenSSH,
     ).decode().rstrip()
     if comment:
-        public_key_text = f"{public_key_text} {comment}"
+        # Strip and reject control characters to ensure the public key line
+        # remains a single valid authorized_keys entry.
+        comment = comment.strip()
+        if any(ord(c) < 32 or ord(c) == 127 for c in comment):
+            raise ValueError("SSH key comment must not contain control characters")
+        if comment:
+            public_key_text = f"{public_key_text} {comment}"
     return private_key_text, public_key_text
 
 
@@ -627,10 +633,14 @@ def get_server_deploy_public_key() -> str:
             # Missing public key file is expected on first run; derive or generate it below.
             pass
         except OSError as exc:
-            logger.warning("Could not read deploy public key at %s: %s", pub_path, exc)
-            return ""
+            logger.warning(
+                "Could not read deploy public key at %s: %s; "
+                "falling through to derive/generate.",
+                pub_path, exc,
+            )
+            # Fall through to deriving from the private key or generating a new keypair.
 
-        # Private key exists but public key file is missing — derive it.
+        # Private key exists but public key file is missing or unreadable — derive it.
         pub_text = _derive_public_key_from_private_file(priv_path, pub_path)
         if pub_text is not None:
             _deploy_public_key_cache = pub_text

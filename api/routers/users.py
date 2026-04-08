@@ -333,6 +333,8 @@ async def upload_key(
 
     # Validate label
     label = _validate_label(label)
+    if not label:
+        raise HTTPException(status_code=400, detail="Label cannot be blank")
 
     # Validate and parse the key
     try:
