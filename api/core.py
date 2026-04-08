@@ -616,6 +616,7 @@ def get_server_deploy_public_key() -> str:
                     "Deploy public key file %s has unexpected format; ignoring.", pub_path
                 )
         except FileNotFoundError:
+            # Missing public key file is expected on first run; derive or generate it below.
             pass
         except OSError as exc:
             logger.warning("Could not read deploy public key at %s: %s", pub_path, exc)
