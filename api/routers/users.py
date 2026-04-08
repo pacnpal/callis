@@ -551,15 +551,13 @@ async def generate_key(
             },
             headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
-    return templates.TemplateResponse(
-        request,
-        "generated_key_page.html",
-        context={
-            "private_key": private_key_text,
-            "label": label,
-            "fingerprint": key_info["fingerprint"],
-            "target_user_id": user_id,
-            "user": user,
-        },
+
+    logger.warning(
+        "Rejected non-HTMX SSH key generation response for user_id=%s",
+        user_id,
+    )
+    return HTMLResponse(
+        content="SSH key generation requires the HTMX-enabled web UI.",
+        status_code=400,
         headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )
