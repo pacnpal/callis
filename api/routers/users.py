@@ -326,17 +326,36 @@ async def upload_key(
     target = target_result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    if not target.is_active:
-        raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
 
-    # Check key limit
-    await _check_key_limit(user_id, db)
-
-    # Validate label
     try:
+        if not target.is_active:
+            raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
+
+        # Check key limit
+        await _check_key_limit(user_id, db)
+
+        # Validate label
         label = _validate_label(label)
         if not label:
             raise HTTPException(status_code=400, detail="Label cannot be blank")
+
+        # Validate and parse the key
+        try:
+            key_info = parse_ssh_public_key(public_key)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Check for duplicate fingerprint
+        dup_result = await db.execute(
+            select(SSHKey).where(
+                SSHKey.user_id == user_id,
+                SSHKey.fingerprint == key_info["fingerprint"],
+                SSHKey.is_active == True,
+            )
+        )
+        if dup_result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="This key is already registered")
+
     except HTTPException as exc:
         if request.headers.get("HX-Request"):
             return HTMLResponse(
@@ -345,23 +364,6 @@ async def upload_key(
                 headers={"HX-Retarget": "#upload-error-msg", "HX-Reswap": "innerHTML"},
             )
         raise
-
-    # Validate and parse the key
-    try:
-        key_info = parse_ssh_public_key(public_key)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    # Check for duplicate fingerprint
-    dup_result = await db.execute(
-        select(SSHKey).where(
-            SSHKey.user_id == user_id,
-            SSHKey.fingerprint == key_info["fingerprint"],
-            SSHKey.is_active == True,
-        )
-    )
-    if dup_result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="This key is already registered")
 
     new_key = SSHKey(
         user_id=user_id,
@@ -449,15 +451,19 @@ async def generate_key(
     target = target_result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    if not target.is_active:
-        raise HTTPException(status_code=400, detail="Cannot generate keys for inactive user")
 
-    # Check key limit
-    await _check_key_limit(user_id, db)
-
-    # Default label when blank
     try:
+        if not target.is_active:
+            raise HTTPException(status_code=400, detail="Cannot generate keys for inactive user")
+
+        # Check key limit
+        await _check_key_limit(user_id, db)
+
+        # Default label when blank
         label = _validate_label(label)
+        if not label:
+            label = f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
+
     except HTTPException as exc:
         if request.headers.get("HX-Request"):
             return HTMLResponse(
@@ -469,8 +475,6 @@ async def generate_key(
                 },
             )
         raise
-    if not label:
-        label = f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
 
     # Generate Ed25519 keypair; use username as the key comment
     private_key_text, public_key_text = generate_ssh_keypair(comment=target.username)
