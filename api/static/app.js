@@ -73,6 +73,9 @@ document.addEventListener("click", function (e) {
     var _genKeyBodyInitial = genKeyBody.innerHTML;
     genDialog.addEventListener("close", function () {
       genKeyBody.innerHTML = _genKeyBodyInitial;
+      if (window.htmx) {
+        window.htmx.process(genKeyBody);
+      }
     });
   }
 }());

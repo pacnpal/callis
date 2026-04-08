@@ -486,6 +486,26 @@ async def generate_key(
         logger.exception("Key generation internal error for user %s: %s", safe_user_id, e)
         raise HTTPException(status_code=500, detail="Key generation failed")
 
+    # Check for duplicate fingerprint (generated keys are unique in practice, but guard anyway)
+    dup_result = await db.execute(
+        select(SSHKey).where(
+            SSHKey.user_id == user_id,
+            SSHKey.fingerprint == key_info["fingerprint"],
+            SSHKey.is_active == True,
+        )
+    )
+    if dup_result.scalar_one_or_none():
+        if request.headers.get("HX-Request"):
+            return HTMLResponse(
+                '<p class="text-error" role="alert">This key is already registered</p>',
+                status_code=200,
+                headers={
+                    "HX-Retarget": "#generate-key-error",
+                    "HX-Reswap": "innerHTML",
+                },
+            )
+        raise HTTPException(status_code=400, detail="This key is already registered")
+
     new_key = SSHKey(
         user_id=user_id,
         label=label,
