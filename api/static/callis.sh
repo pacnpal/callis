@@ -56,9 +56,27 @@ _callis_setup() {
         echo "Error: hostname is required." >&2
         return 1
     fi
+    # Reject hostnames that start with '-' (would be parsed as options by
+    # ssh-keyscan/ssh) or contain whitespace (not valid in a hostname).
+    case "$CALLIS_HOST" in
+        -*|*' '*|*'	'*)
+            echo "Error: invalid hostname — must not start with '-' or contain whitespace." >&2
+            return 1 ;;
+    esac
     printf "Callis SSH port [2222]: "
     read -r CALLIS_PORT
     CALLIS_PORT="${CALLIS_PORT:-2222}"
+    # Validate port: must be a plain positive integer in range 1-65535 with no
+    # leading zeros (which could be misinterpreted as octal on some systems).
+    case "$CALLIS_PORT" in
+        ''|*[!0-9]*|0[0-9]*)
+            echo "Error: invalid port — must be a positive number with no leading zeros." >&2
+            return 1 ;;
+    esac
+    if [ "$CALLIS_PORT" -lt 1 ] || [ "$CALLIS_PORT" -gt 65535 ]; then
+        echo "Error: invalid port — must be between 1 and 65535." >&2
+        return 1
+    fi
     printf "Your Callis username: "
     read -r CALLIS_USER
     if [ -z "$CALLIS_USER" ]; then
@@ -102,7 +120,7 @@ _callis_setup() {
         return 1
     }
     printf "Fetching SSH host key from %s:%s...\n" "$CALLIS_HOST" "$CALLIS_PORT"
-    FETCHED=$(ssh-keyscan -T 10 -p "$CALLIS_PORT" -t ed25519 "$CALLIS_HOST" 2>/dev/null)
+    FETCHED=$(ssh-keyscan -T 10 -p "$CALLIS_PORT" -t ed25519 -- "$CALLIS_HOST" 2>/dev/null)
     if [ -n "$FETCHED" ]; then
         if ! printf '%s\n' "$FETCHED" > "$TMP_KNOWN_HOSTS_FILE"; then
             rm -f "$TMP_KNOWN_HOSTS_FILE" "$TMP_CONFIG_FILE"
@@ -333,14 +351,65 @@ _callis_connect() {
     _escaped_known=$(_callis_sq "${CALLIS_CONFIG_DIR}/known_hosts")
     PROXY_COMMAND="ssh -i ${_escaped_key} -p ${_escaped_port} -o BatchMode=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=${_escaped_known} -W '%h:%p' ${_escaped_user}@${_escaped_host}"
 
-    # Pass $@ before the enforced options so user-supplied flags (e.g. -v)
-    # are accepted but cannot override the security settings that follow.
-    ssh "$@" \
-        -i "$CALLIS_KEY" \
+    # Separate user-supplied SSH option flags from any trailing remote command.
+    # Leading args that begin with '-' (including their next-arg values for
+    # options that require them) are treated as SSH flags and placed after the
+    # enforced security options below.  The first non-flag arg (or any args
+    # after '--') form the remote command and are placed after the destination.
+    # This means the enforced options always appear first and cannot be
+    # overridden (OpenSSH uses first-occurrence semantics for -o options).
+    #
+    # SSH options that consume the next positional argument as their value:
+    _nflags=0
+    _skip_next=0
+    for _ua in "$@"; do
+        if [ "$_skip_next" -eq 1 ]; then
+            _nflags=$((_nflags + 1)); _skip_next=0; continue
+        fi
+        case "$_ua" in
+            --) break ;;
+            -b|-c|-D|-E|-e|-F|-I|-i|-J|-L|-l|-m|-o|-p|-Q|-R|-S|-w|-W)
+                _nflags=$((_nflags + 1)); _skip_next=1 ;;
+            -*) _nflags=$((_nflags + 1)) ;;
+            *)  break ;;
+        esac
+    done
+
+    # Build single-quoted strings for the flag and command portions so they
+    # can be safely re-split by eval without shell-injection risk.
+    _uf=''
+    _uc=''
+    _ui=0
+    for _ua in "$@"; do
+        _ui=$((_ui + 1))
+        _q=$(_callis_sq "$_ua")
+        if   [ "$_ui" -le "$_nflags" ]; then
+            _uf="${_uf:+$_uf }$_q"
+        elif [ "$_ua" = "--" ] && [ "$_ui" -eq "$((_nflags + 1))" ]; then
+            :   # drop the '--' separator — not needed in the final ssh call
+        else
+            _uc="${_uc:+$_uc }$_q"
+        fi
+    done
+
+    _sq_key=$(_callis_sq "$CALLIS_KEY")
+    _sq_proxy=$(_callis_sq "$PROXY_COMMAND")
+    _sq_dest=$(_callis_sq "${CALLIS_USER}@${TARGET_HOST}")
+    _sq_known=$(_callis_sq "${HOME}/.ssh/known_hosts")
+
+    # Enforced security options come first so they take precedence (first-
+    # occurrence wins in OpenSSH).  User option flags follow, then the fixed
+    # destination, then any user-supplied remote command arguments.
+    # shellcheck disable=SC2086
+    eval ssh \
+        -i "$_sq_key" \
         -p "$TARGET_PORT" \
-        -o BatchMode=yes -o StrictHostKeyChecking=yes \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=yes \
         -o GlobalKnownHostsFile=/dev/null \
-        -o "UserKnownHostsFile=${HOME}/.ssh/known_hosts" \
-        -o "ProxyCommand=${PROXY_COMMAND}" \
-        "${CALLIS_USER}@${TARGET_HOST}"
+        -o "UserKnownHostsFile=$_sq_known" \
+        -o "ProxyCommand=$_sq_proxy" \
+        ${_uf} \
+        "$_sq_dest" \
+        ${_uc}
 }
