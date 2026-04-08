@@ -69,16 +69,32 @@ _callis_setup() {
     read -r CALLIS_KEY
     CALLIS_KEY="${CALLIS_KEY:-$HOME/.ssh/id_ed25519}"
 
-    # Write values as plain key=value pairs (not sourced — parsed safely below)
-    {
+    # Write values as plain key=value pairs (not sourced — parsed safely below).
+    # Use a temp file + atomic mv so a failed write never leaves a partial config.
+    TMP_CONFIG_FILE=$(mktemp "${CALLIS_CONFIG_FILE}.tmp.XXXXXX") || {
+        echo "Error: could not create temporary config file." >&2
+        return 1
+    }
+    if ! {
         printf 'CALLIS_HOST=%s\n' "$CALLIS_HOST"
         printf 'CALLIS_PORT=%s\n' "$CALLIS_PORT"
         printf 'CALLIS_USER=%s\n' "$CALLIS_USER"
         printf 'CALLIS_KEY=%s\n'  "$CALLIS_KEY"
-    } > "$CALLIS_CONFIG_FILE"
-    chmod 600 "$CALLIS_CONFIG_FILE"
-
-    echo "Configuration written to ${CALLIS_CONFIG_FILE}; verifying SSH host key before setup is finalized."
+    } > "$TMP_CONFIG_FILE"; then
+        rm -f "$TMP_CONFIG_FILE"
+        echo "Error: could not write configuration to temporary file." >&2
+        return 1
+    fi
+    if ! chmod 600 "$TMP_CONFIG_FILE"; then
+        rm -f "$TMP_CONFIG_FILE"
+        echo "Error: could not set permissions on temporary config file." >&2
+        return 1
+    fi
+    if ! mv "$TMP_CONFIG_FILE" "$CALLIS_CONFIG_FILE"; then
+        rm -f "$TMP_CONFIG_FILE"
+        echo "Error: could not save configuration to ${CALLIS_CONFIG_FILE}." >&2
+        return 1
+    fi
 
     # Fetch the SSH host key, show its fingerprint, and require explicit user
     # confirmation before trusting it for future connections.
