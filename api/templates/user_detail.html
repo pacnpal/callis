@@ -43,6 +43,7 @@
   {% endif %}
 </div>
 
+{% if target_user.is_active %}
 <form method="post" action="/users/{{ target_user.id }}/keys"
       hx-post="/users/{{ target_user.id }}/keys" hx-target="#key-list" hx-swap="innerHTML"
       class="key-upload-form">
@@ -62,6 +63,9 @@
   <p id="upload-error-msg" aria-live="polite" role="alert" class="text-error"></p>
   <button type="submit">Upload Key</button>
 </form>
+{% else %}
+<p class="text-muted">Key management is disabled for inactive users.</p>
+{% endif %}
 
 <div id="key-list">
   {% if keys %}

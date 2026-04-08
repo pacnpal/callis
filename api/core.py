@@ -704,10 +704,9 @@ def get_server_deploy_public_key() -> str:
 
             logger.warning(
                 "Could not recover deploy public key after concurrent creation at %s; "
-                "returning empty string.",
+                "returning empty string. Cache left unset so the next call can retry.",
                 priv_path,
             )
-            _deploy_public_key_cache = ""
             return ""
         except (PermissionError, OSError) as exc:
             logger.warning(

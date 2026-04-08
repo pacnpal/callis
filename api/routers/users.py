@@ -386,7 +386,7 @@ async def upload_key(
     )
 
     if request.headers.get("HX-Request"):
-        # Return updated key list partial
+        # Return updated key list partial (key_list.html includes an OOB clear for #upload-error-msg).
         result = await db.execute(
             select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
         )
