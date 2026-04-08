@@ -35,6 +35,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from models import AuditAction, AuditLog, Setting
 
+__all__ = [
+    "_deploy_public_key_cache",
+]
+
 logger = logging.getLogger("callis")
 
 
