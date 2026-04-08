@@ -467,7 +467,7 @@ async def generate_key(
     except HTTPException as exc:
         if request.headers.get("HX-Request"):
             return HTMLResponse(
-                f'<p class="text-error" role="alert">{html.escape(exc.detail)}</p>',
+                html.escape(exc.detail),
                 status_code=200,
                 headers={
                     "HX-Retarget": "#generate-key-error",
@@ -497,7 +497,7 @@ async def generate_key(
     if dup_result.scalar_one_or_none():
         if request.headers.get("HX-Request"):
             return HTMLResponse(
-                '<p class="text-error" role="alert">This key is already registered</p>',
+                "This key is already registered",
                 status_code=200,
                 headers={
                     "HX-Retarget": "#generate-key-error",
