@@ -596,6 +596,28 @@ def get_server_deploy_public_key() -> str:
     if _deploy_public_key_cache is not None:
         return _deploy_public_key_cache
 
+    global _deploy_public_key_cache
+    # Lazily initialize the module-level cache variable on first use.
+    if "_deploy_public_key_cache" not in globals():
+        _deploy_public_key_cache = None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     with _deploy_key_lock:
         # Re-check inside the lock to handle concurrent first-call racing.
         if _unused_deploy_public_key_cache is not None:
