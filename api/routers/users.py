@@ -552,9 +552,10 @@ async def generate_key(
             headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
 
+    safe_user_id = str(user_id).replace("\r", "").replace("\n", "")
     logger.warning(
         "Rejected non-HTMX SSH key generation response for user_id=%s",
-        user_id,
+        safe_user_id,
     )
     return HTMLResponse(
         content="SSH key generation requires the HTMX-enabled web UI.",
