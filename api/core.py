@@ -36,7 +36,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from models import AuditAction, AuditLog, Setting
 
 logger = logging.getLogger("callis")
-_deploy_public_key_cache: str | None = None
 
 
 def get_app_version() -> str:
@@ -619,7 +618,7 @@ def get_server_deploy_public_key() -> str:
         # Private key exists but public key file is missing — derive it.
         pub_text = _derive_public_key_from_private_file(priv_path, pub_path)
         if pub_text is not None:
-            _unused_deploy_public_key_cache = pub_text
+            _deploy_public_key_cache = pub_text
             return pub_text
 
         # Generate a fresh keypair and persist it.
@@ -639,8 +638,8 @@ def get_server_deploy_public_key() -> str:
             # back to deriving it from the private key file.
             try:
                 with open(pub_path) as f:
-                    _unused_deploy_public_key_cache = f.read().strip()
-                    return _unused_deploy_public_key_cache
+                    _deploy_public_key_cache = f.read().strip()
+                    return _deploy_public_key_cache
             except FileNotFoundError:
                 pass
             except OSError as exc:
@@ -651,8 +650,8 @@ def get_server_deploy_public_key() -> str:
 
             derived = _derive_public_key_from_private_file(priv_path, pub_path)
             if derived is not None:
-                _unused_deploy_public_key_cache = derived
-                return _unused_deploy_public_key_cache
+                _deploy_public_key_cache = derived
+                return _deploy_public_key_cache
 
             logger.warning(
                 "Could not recover deploy public key after concurrent creation at %s; "
@@ -674,7 +673,7 @@ def get_server_deploy_public_key() -> str:
         except (PermissionError, OSError) as exc:
             logger.warning("Could not write deploy public key to %s: %s", pub_path, exc)
         logger.info("Generated Callis server deploy key and saved to %s", priv_path)
-        _unused_deploy_public_key_cache = public_key_text
+        _deploy_public_key_cache = public_key_text
         return public_key_text
 
 

@@ -484,4 +484,15 @@ async def generate_key(
             },
             headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
-    return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "generated_key_page.html",
+        context={
+            "private_key": private_key_text,
+            "label": label,
+            "fingerprint": key_info["fingerprint"],
+            "target_user_id": user_id,
+            "user": user,
+        },
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
