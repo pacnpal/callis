@@ -607,8 +607,14 @@ def get_server_deploy_public_key() -> str:
         # Fast path: public key file already exists.
         try:
             with open(pub_path) as f:
-                _deploy_public_key_cache = f.read().strip()
-                return _deploy_public_key_cache
+                first_line = f.readline().strip()
+            if first_line:
+                if not any(ord(c) < 32 or ord(c) == 127 for c in first_line):
+                    _deploy_public_key_cache = first_line
+                    return _deploy_public_key_cache
+                logger.warning(
+                    "Deploy public key file %s has unexpected format; ignoring.", pub_path
+                )
         except FileNotFoundError:
             pass
         except OSError as exc:
@@ -638,8 +644,15 @@ def get_server_deploy_public_key() -> str:
             # back to deriving it from the private key file.
             try:
                 with open(pub_path) as f:
-                    _deploy_public_key_cache = f.read().strip()
-                    return _deploy_public_key_cache
+                    first_line = f.readline().strip()
+                if first_line:
+                    if not any(ord(c) < 32 or ord(c) == 127 for c in first_line):
+                        _deploy_public_key_cache = first_line
+                        return _deploy_public_key_cache
+                    logger.warning(
+                        "Deploy public key file %s has unexpected format after concurrent creation; ignoring.",
+                        pub_path,
+                    )
             except FileNotFoundError:
                 pass
             except OSError as exc:
@@ -666,6 +679,7 @@ def get_server_deploy_public_key() -> str:
                 priv_path,
                 exc,
             )
+            _deploy_public_key_cache = ""
             return ""
         try:
             with open(pub_path, "w") as f:

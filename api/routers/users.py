@@ -277,6 +277,26 @@ async def delete_user(
     return RedirectResponse(url="/users", status_code=303)
 
 
+_LABEL_MAX_LEN = 100
+
+
+def _validate_label(label: str) -> str:
+    """Strip and validate a key label.
+
+    Returns the stripped label, or raises HTTP 400 if the label contains
+    control characters or exceeds the maximum allowed length.
+    """
+    label = label.strip()
+    if any(ord(c) < 32 or ord(c) == 127 for c in label):
+        raise HTTPException(status_code=400, detail="Label must not contain control characters")
+    if len(label) > _LABEL_MAX_LEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Label must not exceed {_LABEL_MAX_LEN} characters",
+        )
+    return label
+
+
 async def _check_key_limit(user_id: str, db: AsyncSession) -> None:
     """Raise HTTP 400 if the user has reached the configured per-user key limit."""
     max_keys = await get_runtime_setting("max_keys_per_user")
@@ -310,6 +330,9 @@ async def upload_key(
 
     # Check key limit
     await _check_key_limit(user_id, db)
+
+    # Validate label
+    label = _validate_label(label)
 
     # Validate and parse the key
     try:
@@ -421,7 +444,7 @@ async def generate_key(
     await _check_key_limit(user_id, db)
 
     # Default label when blank
-    label = label.strip()
+    label = _validate_label(label)
     if not label:
         label = f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
 
