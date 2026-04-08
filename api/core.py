@@ -576,6 +576,7 @@ def _derive_public_key_from_private_file(priv_path: str, pub_path: str) -> str |
                 exc,
             )
             return None
+        # Validation passed — persist and return the derived public key.
         try:
             with open(pub_path, "w") as fh:
                 fh.write(pub_text + "\n")
