@@ -333,11 +333,14 @@ _callis_connect() {
     _escaped_known=$(_callis_sq "${CALLIS_CONFIG_DIR}/known_hosts")
     PROXY_COMMAND="ssh -i ${_escaped_key} -p ${_escaped_port} -o BatchMode=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null -o UserKnownHostsFile=${_escaped_known} -W '%h:%p' ${_escaped_user}@${_escaped_host}"
 
-    ssh -i "$CALLIS_KEY" \
+    # Pass $@ before the enforced options so user-supplied flags (e.g. -v)
+    # are accepted but cannot override the security settings that follow.
+    ssh "$@" \
+        -i "$CALLIS_KEY" \
+        -p "$TARGET_PORT" \
         -o BatchMode=yes -o StrictHostKeyChecking=yes \
         -o GlobalKnownHostsFile=/dev/null \
         -o "UserKnownHostsFile=${HOME}/.ssh/known_hosts" \
         -o "ProxyCommand=${PROXY_COMMAND}" \
-        -p "$TARGET_PORT" "$@" \
         "${CALLIS_USER}@${TARGET_HOST}"
 }
