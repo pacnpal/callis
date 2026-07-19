@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +11,6 @@ from core import (
     encrypt_totp_secret,
     generate_totp_secret,
     get_db,
-    get_runtime_setting,
     get_settings,
     hash_password,
     limiter,
@@ -22,42 +21,47 @@ from core import (
 )
 from dependencies import get_current_user
 from models import AuditAction, User
-from templating import templates
+from schemas import LoginIn, SessionOut, TOTPSetupOut, TOTPVerifyIn, user_out
 
-router = APIRouter()
+router = APIRouter(prefix="/auth")
 
 # Precomputed dummy hash for constant-time login checks (avoid hashing on every failed attempt)
 _DUMMY_HASH = hash_password("dummy-constant-time-check")
 
 
-@router.get("/login")
-async def login_page(request: Request):
-    user = getattr(request.state, "user", None)
-    if user and user.totp_enrolled:
-        return RedirectResponse(url="/dashboard", status_code=303)
-    motd = await get_runtime_setting("motd")
-    return templates.TemplateResponse(request, "login.html", context={"motd": motd})
+def set_session_cookie(response: Response, token: str) -> None:
+    settings = get_settings()
+    response.set_cookie(
+        "callis_session",
+        token,
+        httponly=True,
+        secure=settings.HTTPS_ENABLED,
+        samesite="strict",
+        path="/",
+    )
+
+
+@router.get("/me")
+async def me(user: User = Depends(get_current_user)) -> SessionOut:
+    return SessionOut(user=user_out(user))
 
 
 @router.post("/login")
 @limiter.limit("5/15minutes")
 async def login_submit(
     request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    totp_code: str = Form(""),
+    body: LoginIn,
     db: AsyncSession = Depends(get_db),
 ):
-    settings = get_settings()
-    error_msg = "Invalid credentials"
-    username = username.lower().strip()
+    error = HTTPException(status_code=401, detail="Invalid credentials")
+    username = body.username.lower().strip()
 
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
 
     if not user or not user.is_active:
         # Constant-time: verify against precomputed dummy hash to prevent timing attacks
-        verify_password(password, _DUMMY_HASH)
+        verify_password(body.password, _DUMMY_HASH)
         await write_audit_log(
             db,
             actor_id=None,
@@ -66,14 +70,9 @@ async def login_submit(
             source_ip=request.client.host if request.client else None,
             detail={"username": username, "reason": "user_not_found"},
         )
-        return templates.TemplateResponse(
-            request,
-            "login.html",
-            context={"error": error_msg, "motd": await get_runtime_setting("motd")},
-            status_code=401,
-        )
+        raise error
 
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(body.password, user.hashed_password):
         await write_audit_log(
             db,
             actor_id=None,
@@ -83,20 +82,14 @@ async def login_submit(
             source_ip=request.client.host if request.client else None,
             detail={"reason": "wrong_password", "target_username": user.username},
         )
-        return templates.TemplateResponse(
-            request,
-            "login.html",
-            context={"error": error_msg, "motd": await get_runtime_setting("motd")},
-            status_code=401,
-        )
+        raise error
 
     # If TOTP enrolled, verify code (always run decrypt+verify for constant-time)
     if user.totp_enrolled:
         secret = decrypt_totp_secret(user.totp_secret)
-        submitted_totp_code = (totp_code or "").strip()
+        submitted_totp_code = (body.totp_code or "").strip()
         # verify_totp already handles invalid/empty formats in constant-time
-        totp_valid = verify_totp(secret, submitted_totp_code)
-        if not totp_valid:
+        if not verify_totp(secret, submitted_totp_code):
             totp_failure_reason = "totp_missing" if not submitted_totp_code else "totp_invalid"
             await write_audit_log(
                 db,
@@ -107,12 +100,7 @@ async def login_submit(
                 source_ip=request.client.host if request.client else None,
                 detail={"reason": totp_failure_reason, "target_username": user.username},
             )
-            return templates.TemplateResponse(
-                request,
-                "login.html",
-                context={"error": error_msg},
-                status_code=401,
-            )
+            raise error
 
     # Success
     user.last_login_at = datetime.now(timezone.utc)
@@ -126,27 +114,19 @@ async def login_submit(
     )
 
     token = create_jwt(user.id)
-    redirect_url = "/dashboard" if user.totp_enrolled else "/totp/setup"
-    response = RedirectResponse(url=redirect_url, status_code=303)
-    response.set_cookie(
-        "callis_session",
-        token,
-        httponly=True,
-        secure=settings.HTTPS_ENABLED,
-        samesite="strict",
-        path="/",
-    )
+    response = JSONResponse(SessionOut(user=user_out(user)).model_dump(mode="json"))
+    set_session_cookie(response, token)
     return response
 
 
 @router.get("/totp/setup")
-async def totp_setup_page(
-    request: Request,
+async def totp_setup(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> TOTPSetupOut:
+    """Return (generating if needed) the pending TOTP enrollment secret + QR code."""
     if user.totp_enrolled:
-        return RedirectResponse(url="/dashboard", status_code=303)
+        raise HTTPException(status_code=409, detail="totp_already_enrolled")
 
     # Re-load user in this session so mutations are persisted
     result = await db.execute(select(User).where(User.id == user.id))
@@ -160,47 +140,29 @@ async def totp_setup_page(
         db_user.totp_secret = encrypt_totp_secret(secret)
         await db.flush()
 
-    return templates.TemplateResponse(
-        request,
-        "totp_setup.html",
-        context={
-            "user": user,
-            "qr_code": totp_qr_b64(secret, user.username),
-            "totp_secret": secret,
-        },
-    )
+    return TOTPSetupOut(qr_png_b64=totp_qr_b64(secret, user.username), secret=secret)
 
 
 @router.post("/totp/verify")
 async def totp_verify(
     request: Request,
-    totp_code: str = Form(...),
+    body: TOTPVerifyIn,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if user.totp_enrolled:
-        return RedirectResponse(url="/dashboard", status_code=303)
+        raise HTTPException(status_code=409, detail="totp_already_enrolled")
 
     # Re-load user in this session so mutations are persisted
     result = await db.execute(select(User).where(User.id == user.id))
     db_user = result.scalar_one()
 
     if not db_user.totp_secret:
-        return RedirectResponse(url="/totp/setup", status_code=303)
+        raise HTTPException(status_code=409, detail="totp_not_initialized")
 
     secret = decrypt_totp_secret(db_user.totp_secret)
-    if not verify_totp(secret, totp_code):
-        # Re-render setup with error
-        return templates.TemplateResponse(
-            request,
-            "totp_setup.html",
-            context={
-                "user": user,
-                "qr_code": totp_qr_b64(secret, db_user.username),
-                "totp_secret": secret,
-                "error": "Invalid code. Please try again.",
-            },
-        )
+    if not verify_totp(secret, body.totp_code):
+        raise HTTPException(status_code=400, detail="Invalid code. Please try again.")
 
     db_user.totp_enrolled = True
     await write_audit_log(
@@ -212,7 +174,7 @@ async def totp_verify(
         source_ip=request.client.host if request.client else None,
     )
 
-    return RedirectResponse(url="/dashboard", status_code=303)
+    return SessionOut(user=user_out(db_user))
 
 
 @router.post("/logout")
@@ -231,11 +193,6 @@ async def logout(
             source_ip=request.client.host if request.client else None,
         )
 
-    response = RedirectResponse(url="/login", status_code=303)
+    response = Response(status_code=204)
     response.delete_cookie("callis_session", path="/")
     return response
-
-
-@router.get("/health")
-async def health():
-    return {"status": "ok"}

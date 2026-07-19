@@ -1,7 +1,7 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -14,7 +14,6 @@ from core import (
     generate_totp_secret,
     get_runtime_setting,
     get_session_factory,
-    get_settings,
     hash_password,
     limiter,
     totp_qr_b64,
@@ -23,15 +22,10 @@ from core import (
 )
 from models import AuditAction, User, UserRole
 from dependencies import get_current_user
-from templating import templates
+from routers.auth import set_session_cookie
+from schemas import SessionOut, SetupIn, TOTPSetupOut, TOTPVerifyIn, user_out
 
-router = APIRouter()
-
-# Context for rendering the shared TOTP enrollment template in wizard mode.
-_WIZARD_TOTP_CONTEXT = {
-    "form_action": "/setup/totp",
-    "button_label": "Verify & Complete Setup",
-}
+router = APIRouter(prefix="/setup")
 
 # Prevent concurrent first-run POSTs from creating multiple admin accounts.
 #
@@ -76,27 +70,26 @@ async def _is_fully_setup() -> bool:
         return result.scalar() > 0
 
 
-@router.get("/setup")
-async def setup_page(request: Request):
-    if not await _is_setup_needed():
-        raise HTTPException(status_code=404)
-    return templates.TemplateResponse(request, "setup.html")
+@router.get("/status")
+async def setup_status():
+    """Public first-run probe used by the SSR frontend's setup redirect."""
+    return {
+        "setup_needed": await _is_setup_needed(),
+        "fully_setup": await _is_fully_setup(),
+    }
 
 
-@router.post("/setup")
+@router.post("", status_code=201)
 @limiter.limit("10/minute")
 async def setup_submit(
     request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    password_confirm: str = Form(...),
-    display_name: str = Form("Administrator"),
+    body: SetupIn,
 ):
     if not await _is_setup_needed():
         raise HTTPException(status_code=404)
 
-    username = username.lower().strip()
-    display_name = display_name.strip() or "Administrator"
+    username = body.username.lower().strip()
+    display_name = body.display_name.strip() or "Administrator"
     errors = []
 
     if not USERNAME_RE.match(username):
@@ -104,18 +97,13 @@ async def setup_submit(
     if username in RESERVED_USERNAMES:
         errors.append(f"Username '{username}' is reserved.")
     min_length: int = await get_runtime_setting("password_min_length")
-    if len(password) < min_length:
+    if len(body.password) < min_length:
         errors.append(f"Password must be at least {min_length} characters.")
-    if password != password_confirm:
+    if body.password != body.password_confirm:
         errors.append("Passwords do not match.")
 
     if errors:
-        return templates.TemplateResponse(
-            request,
-            "setup.html",
-            context={"error": " ".join(errors), "username": username, "display_name": display_name},
-            status_code=400,
-        )
+        raise HTTPException(status_code=400, detail=" ".join(errors))
 
     # Acquire lock and re-verify no user exists to prevent concurrent setup races
     async with _setup_lock:
@@ -128,12 +116,7 @@ async def setup_submit(
             # Check for existing username to avoid an IntegrityError on commit
             existing = await db.execute(select(User).where(User.username == username))
             if existing.scalar_one_or_none():
-                return templates.TemplateResponse(
-                    request,
-                    "setup.html",
-                    context={"error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
-                    status_code=400,
-                )
+                raise HTTPException(status_code=400, detail=f"Username '{username}' is already taken.")
 
             # Re-check count inside the transaction before inserting.
             # Design decision: SQLite (the default) is single-writer, so this
@@ -149,7 +132,7 @@ async def setup_submit(
             admin = User(
                 username=username,
                 display_name=display_name,
-                hashed_password=hash_password(password),
+                hashed_password=hash_password(body.password),
                 role=UserRole.admin,
                 is_active=True,
             )
@@ -173,83 +156,52 @@ async def setup_submit(
                 await db.commit()
             except IntegrityError:
                 await db.rollback()
-                return templates.TemplateResponse(
-                    request,
-                    "setup.html",
-                    context={"error": f"Username '{username}' is already taken.", "username": username, "display_name": display_name},
-                    status_code=400,
-                )
+                raise HTTPException(status_code=400, detail=f"Username '{username}' is already taken.")
 
     # Set session cookie so TOTP step is authenticated
     token = create_jwt(admin.id)
-    response = RedirectResponse(url="/setup/totp", status_code=303)
-    settings = get_settings()
-    response.set_cookie(
-        "callis_session",
-        token,
-        httponly=True,
-        secure=settings.HTTPS_ENABLED,
-        samesite="strict",
-        path="/",
+    response = JSONResponse(
+        SessionOut(user=user_out(admin)).model_dump(mode="json"), status_code=201
     )
+    set_session_cookie(response, token)
     return response
 
 
-@router.get("/setup/totp")
-async def setup_totp_page(request: Request, user: User = Depends(get_current_user)):
+@router.get("/totp")
+async def setup_totp_page(user: User = Depends(get_current_user)) -> TOTPSetupOut:
     if await _is_fully_setup():
         raise HTTPException(status_code=404)
 
     if user.totp_enrolled:
-        return RedirectResponse(url="/dashboard", status_code=303)
+        raise HTTPException(status_code=409, detail="totp_already_enrolled")
 
     if not user.totp_secret:
-        return RedirectResponse(url="/totp/setup", status_code=303)
+        raise HTTPException(status_code=409, detail="totp_not_initialized")
 
     secret = decrypt_totp_secret(user.totp_secret)
-    return templates.TemplateResponse(
-        request,
-        "totp_setup.html",
-        context={
-            "user": user,
-            "qr_code": totp_qr_b64(secret, user.username),
-            "totp_secret": secret,
-            **_WIZARD_TOTP_CONTEXT,
-        },
-    )
+    return TOTPSetupOut(qr_png_b64=totp_qr_b64(secret, user.username), secret=secret)
 
 
-@router.post("/setup/totp")
+@router.post("/totp/verify")
 @limiter.limit("10/minute")
 async def setup_totp_verify(
     request: Request,
-    totp_code: str = Form(...),
+    body: TOTPVerifyIn,
     user: User = Depends(get_current_user),
 ):
     if await _is_fully_setup():
         raise HTTPException(status_code=404)
 
     if user.totp_enrolled:
-        return RedirectResponse(url="/dashboard", status_code=303)
+        raise HTTPException(status_code=409, detail="totp_already_enrolled")
 
     if not user.totp_secret:
-        return RedirectResponse(url="/totp/setup", status_code=303)
+        raise HTTPException(status_code=409, detail="totp_not_initialized")
 
     secret = decrypt_totp_secret(user.totp_secret)
 
-    if not verify_totp(secret, totp_code):
-        return templates.TemplateResponse(
-            request,
-            "totp_setup.html",
-            context={
-                "user": user,
-                "qr_code": totp_qr_b64(secret, user.username),
-                "totp_secret": secret,
-                "error": "Invalid code. Please try again.",
-                **_WIZARD_TOTP_CONTEXT,
-            },
-            status_code=400,
-        )
+    if not verify_totp(secret, body.totp_code):
+        raise HTTPException(status_code=400, detail="Invalid code. Please try again.")
 
     # Mark TOTP as enrolled
     factory = get_session_factory()
@@ -269,4 +221,4 @@ async def setup_totp_verify(
         )
         await db.commit()
 
-    return RedirectResponse(url="/dashboard", status_code=303)
+    return SessionOut(user=user_out(db_user))

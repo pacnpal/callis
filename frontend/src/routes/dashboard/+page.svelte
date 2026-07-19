@@ -1,0 +1,134 @@
+<script lang="ts">
+	import { page } from '$app/state';
+	import AuditDetail from '$lib/components/AuditDetail.svelte';
+	import CopyButton from '$lib/components/CopyButton.svelte';
+	import { formatDateTime, humanize } from '$lib/format';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+
+	const d = $derived(data.dashboard);
+	const user = $derived(page.data.user!);
+	const installCommand = $derived(
+		`curl -fsSL ${page.data.meta.base_url.replace(/\/$/, '')}/install.sh | sh`
+	);
+</script>
+
+<h2>Dashboard</h2>
+
+<div class="grid">
+	<article>
+		<header>Active Users</header>
+		<p class="stat-value">{d.active_users}</p>
+	</article>
+	<article>
+		<header>Hosts</header>
+		<p class="stat-value">{d.active_hosts}</p>
+	</article>
+	<article>
+		<header>Your Keys</header>
+		<p class="stat-value">{d.user_key_count}</p>
+	</article>
+</div>
+
+{#if d.user_key_count === 0 || d.active_hosts === 0}
+	<article class="getting-started">
+		<header><strong>Getting Started</strong></header>
+		<p>Complete these steps to start using Callis as your SSH bastion:</p>
+		<ol>
+			{#if d.user_key_count === 0}
+				<li>
+					<a href="/users/{user.id}">Upload an SSH public key</a> to your profile. Callis accepts
+					Ed25519 and RSA (4096-bit+) keys.
+				</li>
+			{:else}
+				<li>✓ SSH key uploaded</li>
+			{/if}
+			{#if user.role === 'admin'}
+				{#if d.active_hosts === 0}
+					<li>
+						<a href="/hosts">Add a host</a> — register an internal server that users will connect
+						to through the bastion.
+					</li>
+				{:else}
+					<li>✓ Hosts configured</li>
+				{/if}
+			{:else if d.active_hosts === 0}
+				<li>Ask an administrator to add hosts and assign you to them.</li>
+			{:else}
+				<li>
+					✓ Hosts configured by an administrator; contact an administrator if you still need host
+					access assigned.
+				</li>
+			{/if}
+			<li>
+				Copy the SSH config below into <code>~/.ssh/config</code>, then connect with
+				<code>ssh &lt;alias&gt;</code>.
+			</li>
+		</ol>
+	</article>
+{/if}
+
+<section>
+	<h3>SSH Connection</h3>
+	<p>
+		Add this to your <code>~/.ssh/config</code> to use Callis as a jump host. On Windows, this
+		file is at <code>C:\Users\&lt;you&gt;\.ssh\config</code>.
+	</p>
+	<pre class="ssh-config">Host callis
+    HostName {d.ssh_host}
+    Port {d.ssh_port}
+    User {user.username}
+    IdentityFile ~/.ssh/your_ed25519_key</pre>
+	<p class="text-small text-muted">
+		Replace <code>~/.ssh/your_ed25519_key</code> with the path to your actual private key. Then
+		connect to internal hosts with: <code>ssh -J callis user@internal-host</code>
+	</p>
+	<p class="text-small text-muted">
+		View your full SSH config with host aliases on your
+		<a href="/users/{user.id}">profile page</a>.
+	</p>
+
+	<h4>Callis CLI</h4>
+	<p class="text-small">Connect to hosts by tag without editing your SSH config:</p>
+	<div class="ssh-config-actions">
+		<CopyButton text={installCommand} />
+	</div>
+	<pre class="ssh-config">{installCommand}</pre>
+	<p class="text-small text-muted">
+		Then run <code>callis setup</code> to configure, <code>callis list</code> to see hosts, and
+		<code>callis &lt;tag&gt;</code> to connect.
+	</p>
+</section>
+
+{#if d.recent_audit.length > 0}
+	<section>
+		<h3>Recent Activity</h3>
+		<figure>
+			<table>
+				<thead>
+					<tr>
+						<th>Time</th>
+						<th>Action</th>
+						<th>Actor</th>
+						<th>Detail</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each d.recent_audit as entry (entry.id)}
+						<tr>
+							<td class="text-small">{formatDateTime(entry.timestamp)}</td>
+							<td>
+								<span class="badge badge-action badge-{entry.action}">{humanize(entry.action)}</span>
+							</td>
+							<td>{entry.actor_username ?? 'system'}</td>
+							<td class="text-small text-muted">
+								<AuditDetail detail={entry.detail} />
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</figure>
+	</section>
+{/if}

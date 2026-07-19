@@ -1,28 +1,20 @@
 import re
 
 import anyio
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_server_deploy_public_key, get_settings, get_ssh_host, slugify, write_audit_log
+from core import get_db, get_server_deploy_public_key, slugify, write_audit_log
 from dependencies import require_role, require_totp_complete
-from models import AuditAction, Host, User, UserRole
-from templating import templates
+from models import AuditAction, Host, User
+from schemas import CreateHostIn, DeployKeyOut, HostOut, host_out
 
 # Hostnames/IPv4 only; IPv6 literals (with colons) not yet supported
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
-router = APIRouter()
-
-
-async def _all_active_users(db: AsyncSession) -> list[User]:
-    result = await db.execute(
-        select(User).where(User.is_active == True).order_by(User.username)
-    )
-    return result.scalars().all()
+router = APIRouter(prefix="/hosts")
 
 
 async def _host_with_assignments(db: AsyncSession, host_id: str) -> Host | None:
@@ -32,98 +24,74 @@ async def _host_with_assignments(db: AsyncSession, host_id: str) -> Host | None:
     return result.scalar_one_or_none()
 
 
-async def _hosts_page(request: Request, db: AsyncSession, user: User, *, error: str | None = None, status_code: int = 200):
-    """Render the full hosts page (also used to re-render with a form error)."""
+async def _host_or_404(db: AsyncSession, host_id: str) -> Host:
+    host = await _host_with_assignments(db, host_id)
+    if not host:
+        raise HTTPException(status_code=404, detail="Host not found")
+    return host
+
+
+@router.get("")
+async def host_list(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_totp_complete),
+) -> list[HostOut]:
     result = await db.execute(
         select(Host).options(selectinload(Host.assigned_users)).order_by(Host.created_at.desc())
     )
-    hosts = result.scalars().all()
-
-    # Active users for assignment dropdowns and the deploy key (admin only)
-    all_users: list[User] = []
-    server_deploy_key = ""
-    if user.role == UserRole.admin:
-        all_users = await _all_active_users(db)
-        server_deploy_key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
-
-    context = {
-        "hosts": hosts,
-        "user": user,
-        "settings": get_settings(),
-        "ssh_host": await get_ssh_host(),
-        "all_users": all_users,
-        "server_deploy_key": server_deploy_key,
-    }
-    if error:
-        context["error"] = error
-    return templates.TemplateResponse(request, "hosts.html", context=context, status_code=status_code)
+    return [host_out(h) for h in result.scalars().all()]
 
 
-async def _host_row_response(request: Request, db: AsyncSession, user: User, host_id: str, *, with_users: bool = False):
-    """Render the single-row partial used by htmx swaps on the hosts table."""
-    host = await _host_with_assignments(db, host_id)
-    context = {
-        "host": host,
-        "user": user,
-        "settings": get_settings(),
-        "ssh_host": await get_ssh_host(),
-    }
-    if with_users:
-        context["all_users"] = await _all_active_users(db)
-    return templates.TemplateResponse(request, "partials/host_row.html", context=context)
+@router.get("/deploy-key")
+async def deploy_key(
+    user: User = Depends(require_role("admin")),
+) -> DeployKeyOut:
+    key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
+    return DeployKeyOut(public_key=key)
 
 
-@router.get("/hosts")
-async def host_list(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_totp_complete),
-):
-    return await _hosts_page(request, db, user)
-
-
-@router.post("/hosts")
+@router.post("", status_code=201)
 async def create_host(
     request: Request,
-    label: str = Form(...),
-    hostname: str = Form(...),
-    port: int = Form(22),
-    description: str = Form(""),
+    body: CreateHostIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
-    async def _form_error(detail: str):
-        return await _hosts_page(request, db, user, error=detail, status_code=400)
-
+) -> HostOut:
     # Validate label: strip whitespace, reject empty or control characters
-    label = label.strip()
+    label = body.label.strip()
     if not label:
-        return await _form_error("Label must not be empty")
+        raise HTTPException(status_code=400, detail="Label must not be empty")
     if any(c in label for c in "\t\n\r"):
-        return await _form_error("Label must not contain tab or newline characters")
+        raise HTTPException(status_code=400, detail="Label must not contain tab or newline characters")
 
     # Validate hostname (no quotes, commas, spaces — these would break permitopen options)
-    hostname = hostname.strip()
+    hostname = body.hostname.strip()
     if not _HOSTNAME_RE.match(hostname) or len(hostname) > 255:
-        return await _form_error("Invalid hostname. Use alphanumeric characters, dots, hyphens, and underscores only.")
-    if not 1 <= port <= 65535:
-        return await _form_error("Port must be between 1 and 65535")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid hostname. Use alphanumeric characters, dots, hyphens, and underscores only.",
+        )
+    if not 1 <= body.port <= 65535:
+        raise HTTPException(status_code=400, detail="Port must be between 1 and 65535")
 
     # Validate that no active host's label already slugifies to the same CLI tag
     new_slug = slugify(label)
     existing_result = await db.execute(select(Host).where(Host.is_active == True))
     existing_hosts = existing_result.scalars().all()
     if any(slugify(h.label) == new_slug for h in existing_hosts):
-        return await _form_error(
-            f"Another active host already uses the CLI tag '{new_slug}'. "
-            "Choose a label that produces a unique tag."
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Another active host already uses the CLI tag '{new_slug}'. "
+                "Choose a label that produces a unique tag."
+            ),
         )
 
     new_host = Host(
         label=label,
         hostname=hostname,
-        port=port,
-        description=description,
+        port=body.port,
+        description=body.description,
     )
     db.add(new_host)
     await db.flush()
@@ -135,23 +103,21 @@ async def create_host(
         target_type="host",
         target_id=new_host.id,
         source_ip=request.client.host if request.client else None,
-        detail={"label": label, "hostname": hostname, "port": port},
+        detail={"label": label, "hostname": hostname, "port": body.port},
     )
 
-    return RedirectResponse(url="/hosts", status_code=303)
+    # Reload with assignment relationship for a consistent response shape
+    return host_out(await _host_or_404(db, new_host.id))
 
 
-@router.post("/hosts/{host_id}/deactivate")
+@router.post("/{host_id}/deactivate")
 async def deactivate_host(
     request: Request,
     host_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
-    result = await db.execute(select(Host).where(Host.id == host_id))
-    host = result.scalar_one_or_none()
-    if not host:
-        raise HTTPException(status_code=404, detail="Host not found")
+) -> HostOut:
+    host = await _host_or_404(db, host_id)
 
     host.is_active = False
     await write_audit_log(
@@ -163,24 +129,17 @@ async def deactivate_host(
         source_ip=request.client.host if request.client else None,
         detail={"label": host.label},
     )
-
-    if request.headers.get("HX-Request"):
-        return await _host_row_response(request, db, user, host_id)
-    return RedirectResponse(url="/hosts", status_code=303)
+    return host_out(host)
 
 
-@router.post("/hosts/{host_id}/delete")
-@router.delete("/hosts/{host_id}")
+@router.delete("/{host_id}", status_code=204)
 async def delete_host(
     request: Request,
     host_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
-    result = await db.execute(select(Host).where(Host.id == host_id))
-    host = result.scalar_one_or_none()
-    if not host:
-        raise HTTPException(status_code=404, detail="Host not found")
+    host = await _host_or_404(db, host_id)
 
     label = host.label
     await db.delete(host)
@@ -194,23 +153,18 @@ async def delete_host(
         source_ip=request.client.host if request.client else None,
         detail={"label": label},
     )
-
-    if request.headers.get("HX-Request"):
-        return HTMLResponse("")
-    return RedirectResponse(url="/hosts", status_code=303)
+    return Response(status_code=204)
 
 
-@router.post("/hosts/{host_id}/assign/{target_user_id}")
+@router.post("/{host_id}/assign/{target_user_id}")
 async def assign_host(
     request: Request,
     host_id: str,
     target_user_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
-    host = await _host_with_assignments(db, host_id)
-    if not host:
-        raise HTTPException(status_code=404, detail="Host not found")
+) -> HostOut:
+    host = await _host_or_404(db, host_id)
 
     target_result = await db.execute(select(User).where(User.id == target_user_id))
     target_user = target_result.scalar_one_or_none()
@@ -229,23 +183,19 @@ async def assign_host(
             detail={"host_label": host.label, "username": target_user.username},
         )
 
-    if request.headers.get("HX-Request"):
-        await db.flush()
-        return await _host_row_response(request, db, user, host_id, with_users=True)
-    return RedirectResponse(url="/hosts", status_code=303)
+    await db.flush()
+    return host_out(host)
 
 
-@router.post("/hosts/{host_id}/unassign/{target_user_id}")
+@router.post("/{host_id}/unassign/{target_user_id}")
 async def unassign_host(
     request: Request,
     host_id: str,
     target_user_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
-    host = await _host_with_assignments(db, host_id)
-    if not host:
-        raise HTTPException(status_code=404, detail="Host not found")
+) -> HostOut:
+    host = await _host_or_404(db, host_id)
 
     target_result = await db.execute(select(User).where(User.id == target_user_id))
     target_user = target_result.scalar_one_or_none()
@@ -264,7 +214,5 @@ async def unassign_host(
             detail={"host_label": host.label, "username": target_user.username},
         )
 
-    if request.headers.get("HX-Request"):
-        await db.flush()
-        return await _host_row_response(request, db, user, host_id, with_users=True)
-    return RedirectResponse(url="/hosts", status_code=303)
+    await db.flush()
+    return host_out(host)

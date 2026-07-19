@@ -20,7 +20,9 @@ COPY . .
 # Create data directory
 RUN mkdir -p /data
 
-EXPOSE 8080 8081
+# JSON API (bind 0.0.0.0 via API_HOST when running the API standalone) and
+# the internal sshd-facing API.
+EXPOSE 8000 8081
 
 # Run the already-built venv directly — `uv run` would re-sync the environment
 # at startup (including the dev group), requiring network egress at runtime.

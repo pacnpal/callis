@@ -1,0 +1,11 @@
+# Keep local build/dependency artifacts out of the image build context.
+# Without this, a developer's local api/.venv would overwrite the venv that
+# `uv sync --frozen` creates inside the image (its interpreter symlinks point
+# at host paths that don't exist in the container).
+.git
+**/__pycache__
+**/*.pyc
+api/.venv
+frontend/node_modules
+frontend/.svelte-kit
+frontend/build

@@ -106,14 +106,14 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **NFR-SEC-02** — sshd MUST run with the minimum privilege OpenSSH allows: `PermitRootLogin no`, privilege-separated workers, and root used only for `AuthorizedKeysCommand` (which creates OS user accounts on the fly).
 - **NFR-SEC-03** — The API's internal key-serving endpoint (`/internal/keys/{username}`) MUST be bound to a separate internal port not exposed outside the Docker network. It MUST NOT be accessible via the public-facing web UI port.
 - **NFR-SEC-04** — All HTTP responses MUST include security headers: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Strict-Transport-Security` (when behind TLS).
-- **NFR-SEC-05** — The Content Security Policy MUST disallow inline scripts and restrict script sources to the CDN allowlist (htmx, Pico CSS).
+- **NFR-SEC-05** — The Content Security Policy MUST disallow inline scripts and restrict every source directive to `'self'` (hash-allowlisted framework hydration scripts excepted). There MUST be no CDN dependencies; all assets are bundled and served from the application itself.
 - **NFR-SEC-06** — Stack traces and internal error details MUST NEVER be exposed to the browser. Unexpected errors (5xx) MUST render a generic error page; expected HTTP errors (4xx) MAY include a user-safe detail message.
 - **NFR-SEC-07** — User IDs in URLs MUST use opaque UUIDs, not sequential integers.
 - **NFR-SEC-08** — Fail2ban MUST be included as an optional sidecar (opt-in via Compose profile) that watches sshd logs and bans IPs after 3 failed attempts within 10 minutes. Ban duration: 24 hours first offense, permanent after 3 offenses (recidive).
 
 ### 3.2 Usability
 
-- **NFR-USE-01** — The web UI SHOULD degrade gracefully without JavaScript where practical. Core read-only flows work without JS; admin actions (create user/host) require JS for dialog interaction.
+- **NFR-USE-01** — The web UI is server-side rendered and SHOULD degrade gracefully without JavaScript where practical. All pages render and all forms submit without JS (progressive enhancement); admin actions (create user/host) require JS only for dialog interaction.
 - **NFR-USE-02** — The web UI MUST be accessible on mobile screen sizes.
 - **NFR-USE-03** — The web UI MUST display the SSH client config snippet a user needs to connect through Callis, pre-filled with their username and the configured hostname.
 - **NFR-USE-04** — First-run setup MUST guide the admin through: setting admin password, completing TOTP enrollment, and adding a first host — before the system is considered ready.
@@ -122,8 +122,8 @@ The primary deployment target is homelab and small-team infrastructure environme
 
 - **NFR-MAINT-01** — The Python backend MUST use `uv` for dependency management.
 - **NFR-MAINT-02** — All Python dependencies MUST be pinned in `pyproject.toml` with a locked `uv.lock`.
-- **NFR-MAINT-03** — There MUST be no Node.js, npm, or frontend build step of any kind.
-- **NFR-MAINT-04** — The codebase MUST be structured so that adding a new page requires: one route function, one template file, and entries in the nav — nothing else.
+- **NFR-MAINT-03** — No Node.js toolchain at runtime. The frontend is compiled once in a Docker build stage (`npm ci` against the committed `package-lock.json`, mirroring `uv sync --frozen`); the published image contains only the compiled, self-contained SSR bundle and the bare `node` binary that executes it — no npm, no `node_modules`, no network access at build-output runtime.
+- **NFR-MAINT-04** — The codebase MUST be structured so that adding a new page requires: one JSON endpoint (only if new data is needed — the API is the single source of truth), one SvelteKit route directory (`+page.server.ts` + `+page.svelte`), and a nav entry — nothing else.
 
 ### 3.4 Performance
 

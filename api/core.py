@@ -176,6 +176,10 @@ class Settings(BaseSettings):
     TRUSTED_PROXIES: str = "*"
     LOG_LEVEL: str = "info"
     SSH_PORT: int = 2222
+    # Bind address for the JSON API. The SvelteKit SSR server on :8080 is the
+    # public entrypoint; the API itself stays on loopback inside the container.
+    API_HOST: str = "127.0.0.1"
+    API_PORT: int = 8000
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
@@ -199,9 +203,17 @@ def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
+        kwargs: dict[str, Any] = {}
+        if ":memory:" in settings.DATABASE_URL:
+            # A pooled in-memory SQLite would give every connection its own
+            # empty database; share one connection so tests see a single DB.
+            from sqlalchemy.pool import StaticPool
+
+            kwargs["poolclass"] = StaticPool
         _engine = create_async_engine(
             settings.DATABASE_URL,
             echo=settings.DEV_MODE,
+            **kwargs,
         )
     return _engine
 
@@ -255,21 +267,6 @@ RESERVED_USERNAMES = frozenset({
     "news", "uucp", "proxy", "www-data", "backup", "list", "irc", "gnats",
     "nobody", "sshd", "guest", "operator", "test",
 })
-
-
-def _instance_name() -> str:
-    """Return the current instance name (DB override or default)."""
-    if _db_settings_cache is not None and "instance_name" in _db_settings_cache:
-        return _db_settings_cache["instance_name"]
-    return CONFIGURABLE_SETTINGS["instance_name"]["default"]
-
-
-def register_template_filters(jinja_templates) -> None:
-    """Register custom Jinja2 filters and globals on a Templates instance."""
-    jinja_templates.env.filters["slugify"] = slugify
-    jinja_templates.env.globals["app_version"] = get_app_version()
-    # Callable so it picks up DB changes at render time
-    jinja_templates.env.globals["instance_name"] = _instance_name
 
 
 # ---------------------------------------------------------------------------
