@@ -76,8 +76,9 @@ internal_app.add_middleware(InternalSecretMiddleware)
 
 # Suppress duplicate KEY_USED audit rows for the same key within this window.
 # sshd invokes AuthorizedKeysCommand twice per connection (key offer + auth),
-# so without dedup every SSH connection would produce two identical entries.
-_KEY_USED_DEDUP_WINDOW = timedelta(seconds=60)
+# milliseconds apart — the window only needs to cover that double call, and is
+# kept short so separate rapid reconnections still get their own audit entries.
+_KEY_USED_DEDUP_WINDOW = timedelta(seconds=5)
 
 
 async def _record_key_usage(db, user: User, fingerprint: str) -> None:
@@ -85,6 +86,14 @@ async def _record_key_usage(db, user: User, fingerprint: str) -> None:
 
     sshd passes the offered key's fingerprint (%f) via the `fp` query param.
     Only fingerprints that match one of the user's active keys are recorded.
+
+    Known limitation: AuthorizedKeysCommand runs at key *offer* time, before
+    sshd has verified possession of the private key — OpenSSH provides no
+    post-auth hook that fires for ProxyJump (direct-tcpip) connections. A
+    client holding a user's full public key (not just its fingerprint) could
+    therefore create a key_used entry without completing authentication. This
+    grants no access; sshd's VERBOSE log remains the authoritative record of
+    accepted vs. failed authentications.
     """
     result = await db.execute(
         select(SSHKey).where(

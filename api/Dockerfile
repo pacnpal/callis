@@ -22,4 +22,6 @@ RUN mkdir -p /data
 
 EXPOSE 8080 8081
 
-CMD ["uv", "run", "python", "main.py"]
+# Run the already-built venv directly — `uv run` would re-sync the environment
+# at startup (including the dev group), requiring network egress at runtime.
+CMD ["/app/.venv/bin/python", "main.py"]
