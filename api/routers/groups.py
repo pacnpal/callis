@@ -70,10 +70,10 @@ async def create_group(
     db.add(group)
     try:
         # The pre-check above narrows the window, but HostGroup.name is unique
-        # and a concurrent insert can still lose the race here.
+        # and a concurrent insert can still lose the race here. get_db rolls the
+        # session back when the HTTPException propagates out.
         await db.flush()
     except IntegrityError:
-        await db.rollback()
         raise HTTPException(status_code=400, detail="A group with this name already exists")
 
     await write_audit_log(
