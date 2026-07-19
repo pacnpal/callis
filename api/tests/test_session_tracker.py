@@ -3,12 +3,11 @@ import asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import core
-import session_tracker
 from core import hash_password
 from models import AuditAction, AuditLog, Base, SessionTrackerState, SshSession, User, UserRole
 from session_tracker import (
     _candidate_hex_addrs,
+    apply_log_event,
     close_stale_open_sessions,
     find_socket_inodes,
     parse_log_line,
@@ -85,8 +84,8 @@ async def _make_db():
 
 
 def _patch_factory(monkeypatch, factory):
-    monkeypatch.setattr(core, "get_session_factory", lambda: factory)
-    monkeypatch.setattr(session_tracker, "get_session_factory", lambda: factory)
+    monkeypatch.setattr("core.get_session_factory", lambda: factory)
+    monkeypatch.setattr("session_tracker.get_session_factory", lambda: factory)
 
 
 def test_accept_and_close_lifecycle(monkeypatch):
@@ -106,7 +105,7 @@ def test_accept_and_close_lifecycle(monkeypatch):
                 )
                 await db.commit()
 
-            await session_tracker.apply_log_event(parse_log_line(ACCEPT_LINE))
+            await apply_log_event(parse_log_line(ACCEPT_LINE))
 
             async with factory() as db:
                 sessions = (await db.execute(select(SshSession))).scalars().all()
@@ -120,11 +119,11 @@ def test_accept_and_close_lifecycle(monkeypatch):
                 audit = (await db.execute(select(AuditLog))).scalars().all()
                 assert [a.action for a in audit] == [AuditAction.SESSION_OPENED]
 
-            await session_tracker.apply_log_event(
+            await apply_log_event(
                 parse_log_line("Disconnected from user alice 172.18.0.1 port 51234")
             )
             # A duplicate close line must be a no-op
-            await session_tracker.apply_log_event(
+            await apply_log_event(
                 parse_log_line("Received disconnect from 172.18.0.1 port 51234:11: bye")
             )
 
@@ -148,8 +147,8 @@ def test_accept_is_idempotent_on_replay(monkeypatch):
         _patch_factory(monkeypatch, factory)
         try:
             event = parse_log_line(ACCEPT_LINE)
-            await session_tracker.apply_log_event(event)
-            await session_tracker.apply_log_event(event)
+            await apply_log_event(event)
+            await apply_log_event(event)
 
             async with factory() as db:
                 sessions = (await db.execute(select(SshSession))).scalars().all()
@@ -169,7 +168,7 @@ def test_event_and_position_commit_atomically(monkeypatch):
         engine, factory = await _make_db()
         _patch_factory(monkeypatch, factory)
         try:
-            await session_tracker.apply_log_event(parse_log_line(ACCEPT_LINE), position=(7, 123))
+            await apply_log_event(parse_log_line(ACCEPT_LINE), position=(7, 123))
 
             async with factory() as db:
                 state = await db.get(SessionTrackerState, 1)
@@ -177,7 +176,7 @@ def test_event_and_position_commit_atomically(monkeypatch):
 
             # Replaying the same accept (crash before a later offset persisted)
             # is a no-op for rows and audit alike
-            await session_tracker.apply_log_event(parse_log_line(ACCEPT_LINE), position=(7, 123))
+            await apply_log_event(parse_log_line(ACCEPT_LINE), position=(7, 123))
             async with factory() as db:
                 assert len((await db.execute(select(SshSession))).scalars().all()) == 1
         finally:
@@ -214,7 +213,7 @@ def test_accept_for_unknown_user_still_recorded(monkeypatch):
         engine, factory = await _make_db()
         _patch_factory(monkeypatch, factory)
         try:
-            await session_tracker.apply_log_event(
+            await apply_log_event(
                 parse_log_line("Accepted publickey for ghost from 10.0.0.9 port 1024 ssh2")
             )
             async with factory() as db:
@@ -232,7 +231,7 @@ def test_close_stale_open_sessions(monkeypatch):
         engine, factory = await _make_db()
         _patch_factory(monkeypatch, factory)
         # No established socket exists for these peers in this test env
-        monkeypatch.setattr(session_tracker, "connection_still_established", lambda ip, port: False)
+        monkeypatch.setattr("session_tracker.connection_still_established", lambda ip, port: False)
         try:
             async with factory() as db:
                 db.add(SshSession(username="alice", source_ip="1.2.3.4", source_port=1))
@@ -265,8 +264,7 @@ def test_close_stale_keeps_live_connections_open(monkeypatch):
         engine, factory = await _make_db()
         _patch_factory(monkeypatch, factory)
         monkeypatch.setattr(
-            session_tracker,
-            "connection_still_established",
+            "session_tracker.connection_still_established",
             lambda ip, port: port == 1,  # only alice's connection is still alive
         )
         try:

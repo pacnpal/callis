@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import shlex
 from contextlib import asynccontextmanager
@@ -61,10 +62,10 @@ async def lifespan(app: FastAPI):
     yield
 
     tracker_task.cancel()
-    try:
+    # Cancellation is the expected way the follower stops; anything else
+    # already logged inside the task.
+    with contextlib.suppress(asyncio.CancelledError):
         await tracker_task
-    except asyncio.CancelledError:
-        pass
     engine = get_engine()
     await engine.dispose()
 
