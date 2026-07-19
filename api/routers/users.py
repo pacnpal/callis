@@ -1,9 +1,7 @@
-import html
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -21,10 +19,23 @@ from core import (
     write_audit_log,
 )
 from dependencies import require_admin_or_self, require_role
-from models import AuditAction, SSHKey, User, UserRole
-from templating import templates
+from models import AuditAction, Host, SSHKey, User, UserRole
+from schemas import (
+    ChangeRoleIn,
+    CreateUserIn,
+    GeneratedKeyOut,
+    GenerateKeyIn,
+    SSHKeyOut,
+    UploadKeyIn,
+    UserDetailOut,
+    UserListItem,
+    UserOut,
+    host_out,
+    ssh_key_out,
+    user_out,
+)
 
-router = APIRouter()
+router = APIRouter(prefix="/users")
 logger = logging.getLogger("callis")
 
 
@@ -49,137 +60,98 @@ async def _active_key_count(db: AsyncSession, user_id: str) -> int:
     return result.scalar()
 
 
-async def _active_keys(db: AsyncSession, user_id: str) -> list[SSHKey]:
-    result = await db.execute(
-        select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
-    )
-    return result.scalars().all()
+async def _get_user_or_404(db: AsyncSession, user_id: str) -> User:
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    return target
 
 
-async def _users_page(request: Request, db: AsyncSession, user: User, *, error: str | None = None, status_code: int = 200):
-    """Render the full users page (also used to re-render with a form error)."""
+@router.get("")
+async def user_list(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role("admin")),
+) -> list[UserListItem]:
     result = await db.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
     key_counts = await _key_counts(db, [u.id for u in users])
-    context = {"users": users, "key_counts": key_counts, "user": user}
-    if error:
-        context["error"] = error
-    return templates.TemplateResponse(request, "users.html", context=context, status_code=status_code)
+    return [
+        UserListItem(**user_out(u).model_dump(), key_count=key_counts.get(u.id, 0))
+        for u in users
+    ]
 
 
-async def _user_row_response(request: Request, db: AsyncSession, user: User, target: User):
-    """Render the single-row partial used by htmx swaps on the users table."""
-    return templates.TemplateResponse(
-        request,
-        "partials/user_row.html",
-        context={
-            "row_user": target,
-            "key_count": await _active_key_count(db, target.id),
-            "user": user,
-        },
-    )
-
-
-async def _key_list_response(request: Request, db: AsyncSession, user: User, user_id: str):
-    """Render the key-list partial used by htmx swaps on the profile page."""
-    return templates.TemplateResponse(
-        request,
-        "partials/key_list.html",
-        context={
-            "keys": await _active_keys(db, user_id),
-            "target_user_id": user_id,
-            "user": user,
-        },
-    )
-
-
-@router.get("/users")
-async def user_list(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role("admin")),
-):
-    return await _users_page(request, db, user)
-
-
-@router.get("/users/{user_id}")
+@router.get("/{user_id}")
 async def user_detail(
-    request: Request,
     user_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin_or_self),
-):
+) -> UserDetailOut:
     result = await db.execute(
         select(User)
-        .options(selectinload(User.ssh_keys), selectinload(User.assigned_hosts))
+        .options(
+            selectinload(User.ssh_keys),
+            selectinload(User.assigned_hosts).selectinload(Host.assigned_users),
+        )
         .where(User.id == user_id)
     )
     target_user = result.scalar_one_or_none()
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    active_keys = [k for k in target_user.ssh_keys if k.is_active]
-    assigned_hosts = [h for h in target_user.assigned_hosts if h.is_active]
-
     settings = get_settings()
-
-    return templates.TemplateResponse(
-        request,
-        "user_detail.html",
-        context={
-            "target_user": target_user,
-            "keys": active_keys,
-            "assigned_hosts": assigned_hosts,
-            "ssh_host": await get_ssh_host(),
-            "ssh_port": settings.SSH_PORT,
-            "user": user,
-            "roles": [r.value for r in UserRole],
-        },
+    return UserDetailOut(
+        user=user_out(target_user),
+        keys=[ssh_key_out(k) for k in target_user.ssh_keys if k.is_active],
+        assigned_hosts=[host_out(h) for h in target_user.assigned_hosts if h.is_active],
+        ssh_host=await get_ssh_host(),
+        ssh_port=settings.SSH_PORT,
+        roles=[r.value for r in UserRole],
     )
 
 
-@router.post("/users")
+@router.post("", status_code=201)
 async def create_user(
     request: Request,
-    username: str = Form(...),
-    display_name: str = Form(""),
-    email: str = Form(""),
-    password: str = Form(...),
-    role: str = Form("readonly"),
+    body: CreateUserIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
-    async def _form_error(detail: str):
-        return await _users_page(request, db, user, error=detail, status_code=400)
-
+) -> UserOut:
     # Server-side username validation
-    username = username.lower().strip()
+    username = body.username.lower().strip()
     if not USERNAME_RE.match(username):
-        return await _form_error("Username must be 1-32 lowercase alphanumeric characters, hyphens, or underscores, starting with a letter.")
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be 1-32 lowercase alphanumeric characters, hyphens, or underscores, starting with a letter.",
+        )
     if username in RESERVED_USERNAMES:
-        return await _form_error(f"Username '{username}' is reserved")
+        raise HTTPException(status_code=400, detail=f"Username '{username}' is reserved")
 
     # Server-side password validation
     pwd_min = await get_runtime_setting("password_min_length")
-    if len(password) < pwd_min:
-        return await _form_error(f"Password must be at least {pwd_min} characters")
+    if len(body.password) < pwd_min:
+        raise HTTPException(status_code=400, detail=f"Password must be at least {pwd_min} characters")
 
     # Validate role
     try:
-        user_role = UserRole(role)
+        user_role = UserRole(body.role)
     except ValueError:
-        return await _form_error(f"Invalid role '{role}'. Must be one of: admin, operator, readonly")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role '{body.role}'. Must be one of: admin, operator, readonly",
+        )
 
     # Check duplicate username
     existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
-        return await _form_error("Username already exists")
+        raise HTTPException(status_code=400, detail="Username already exists")
 
     new_user = User(
         username=username,
-        display_name=display_name or username,
-        email=email or None,
-        hashed_password=hash_password(password),
+        display_name=body.display_name or username,
+        email=body.email or None,
+        hashed_password=hash_password(body.password),
         role=user_role,
     )
     db.add(new_user)
@@ -192,23 +164,20 @@ async def create_user(
         target_type="user",
         target_id=new_user.id,
         source_ip=request.client.host if request.client else None,
-        detail={"username": username, "role": role},
+        detail={"username": username, "role": body.role},
     )
 
-    return RedirectResponse(url="/users", status_code=303)
+    return user_out(new_user)
 
 
-@router.post("/users/{user_id}/deactivate")
+@router.post("/{user_id}/deactivate")
 async def deactivate_user(
     request: Request,
     user_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
-    result = await db.execute(select(User).where(User.id == user_id))
-    target = result.scalar_one_or_none()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+) -> UserOut:
+    target = await _get_user_or_404(db, user_id)
 
     target.is_active = False
     await write_audit_log(
@@ -220,23 +189,17 @@ async def deactivate_user(
         source_ip=request.client.host if request.client else None,
         detail={"username": target.username},
     )
-
-    if request.headers.get("HX-Request"):
-        return await _user_row_response(request, db, user, target)
-    return RedirectResponse(url="/users", status_code=303)
+    return user_out(target)
 
 
-@router.post("/users/{user_id}/activate")
+@router.post("/{user_id}/activate")
 async def activate_user(
     request: Request,
     user_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
-    result = await db.execute(select(User).where(User.id == user_id))
-    target = result.scalar_one_or_none()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+) -> UserOut:
+    target = await _get_user_or_404(db, user_id)
 
     target.is_active = True
     await write_audit_log(
@@ -248,34 +211,31 @@ async def activate_user(
         source_ip=request.client.host if request.client else None,
         detail={"username": target.username},
     )
-
-    if request.headers.get("HX-Request"):
-        return await _user_row_response(request, db, user, target)
-    return RedirectResponse(url="/users", status_code=303)
+    return user_out(target)
 
 
-@router.post("/users/{user_id}/role")
+@router.put("/{user_id}/role")
 async def change_role(
     request: Request,
     user_id: str,
-    role: str = Form(...),
+    body: ChangeRoleIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
+) -> UserOut:
     # A user must never change their own role (FR-USER-06): prevents both
     # self-elevation and admins accidentally locking themselves out.
     if user.id == user_id:
         raise HTTPException(status_code=400, detail="Cannot change your own role")
 
     try:
-        new_role = UserRole(role)
+        new_role = UserRole(body.role)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid role '{role}'. Must be one of: admin, operator, readonly")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role '{body.role}'. Must be one of: admin, operator, readonly",
+        )
 
-    result = await db.execute(select(User).where(User.id == user_id))
-    target = result.scalar_one_or_none()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    target = await _get_user_or_404(db, user_id)
 
     old_role = target.role
     if new_role != old_role:
@@ -290,11 +250,10 @@ async def change_role(
             detail={"username": target.username, "old_role": old_role.value, "new_role": new_role.value},
         )
 
-    return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)
+    return user_out(target)
 
 
-@router.post("/users/{user_id}/delete")
-@router.delete("/users/{user_id}")
+@router.delete("/{user_id}", status_code=204)
 async def delete_user(
     request: Request,
     user_id: str,
@@ -304,10 +263,7 @@ async def delete_user(
     if user.id == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
 
-    result = await db.execute(select(User).where(User.id == user_id))
-    target = result.scalar_one_or_none()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    target = await _get_user_or_404(db, user_id)
 
     username = target.username
     await db.delete(target)
@@ -321,10 +277,7 @@ async def delete_user(
         source_ip=request.client.host if request.client else None,
         detail={"username": username},
     )
-
-    if request.headers.get("HX-Request"):
-        return HTMLResponse("")
-    return RedirectResponse(url="/users", status_code=303)
+    return Response(status_code=204)
 
 
 _LABEL_MAX_LEN = 100
@@ -410,66 +363,59 @@ async def _add_key(
     return new_key
 
 
-@router.post("/users/{user_id}/keys")
+@router.get("/{user_id}/keys")
+async def list_keys(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_self),
+) -> list[SSHKeyOut]:
+    await _get_user_or_404(db, user_id)
+    result = await db.execute(
+        select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
+    )
+    return [ssh_key_out(k) for k in result.scalars().all()]
+
+
+@router.post("/{user_id}/keys", status_code=201)
 async def upload_key(
     request: Request,
     user_id: str,
-    label: str = Form(...),
-    public_key: str = Form(...),
+    body: UploadKeyIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin_or_self),
-):
-    # Verify target user exists and is active
-    target_result = await db.execute(select(User).where(User.id == user_id))
-    target = target_result.scalar_one_or_none()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+) -> SSHKeyOut:
+    target = await _get_user_or_404(db, user_id)
+    if not target.is_active:
+        raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
 
+    # Check key limit
+    await _check_key_limit(user_id, db)
+
+    # Validate label
+    label = _validate_label(body.label)
+    if not label:
+        raise HTTPException(status_code=400, detail="Label cannot be blank")
+
+    # Validate and parse the key
     try:
-        if not target.is_active:
-            raise HTTPException(status_code=400, detail="Cannot upload keys for inactive user")
+        key_info = parse_ssh_public_key(body.public_key)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-        # Check key limit
-        await _check_key_limit(user_id, db)
+    await _check_duplicate_fingerprint(db, user_id, key_info["fingerprint"])
 
-        # Validate label
-        label = _validate_label(label)
-        if not label:
-            raise HTTPException(status_code=400, detail="Label cannot be blank")
-
-        # Validate and parse the key
-        try:
-            key_info = parse_ssh_public_key(public_key)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        await _check_duplicate_fingerprint(db, user_id, key_info["fingerprint"])
-
-    except HTTPException as exc:
-        if request.headers.get("HX-Request"):
-            return HTMLResponse(
-                f'<span class="text-error">{html.escape(exc.detail)}</span>',
-                status_code=200,
-                headers={"HX-Retarget": "#upload-error-msg", "HX-Reswap": "innerHTML"},
-            )
-        raise
-
-    await _add_key(request, db, user, user_id, label, key_info)
-
-    if request.headers.get("HX-Request"):
-        # Return updated key list partial (key_list.html includes an OOB clear for #upload-error-msg).
-        return await _key_list_response(request, db, user, user_id)
-    return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)
+    new_key = await _add_key(request, db, user, user_id, label, key_info)
+    return ssh_key_out(new_key)
 
 
-@router.post("/users/{user_id}/keys/{key_id}/revoke")
+@router.post("/{user_id}/keys/{key_id}/revoke")
 async def revoke_key(
     request: Request,
     user_id: str,
     key_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin_or_self),
-):
+) -> SSHKeyOut:
     result = await db.execute(
         select(SSHKey).where(SSHKey.id == key_id, SSHKey.user_id == user_id)
     )
@@ -487,52 +433,29 @@ async def revoke_key(
         source_ip=request.client.host if request.client else None,
         detail={"fingerprint": key.fingerprint, "label": key.label},
     )
-
-    if request.headers.get("HX-Request"):
-        return await _key_list_response(request, db, user, user_id)
-    return RedirectResponse(url=request.url_for("user_detail", user_id=user_id), status_code=303)
+    return ssh_key_out(key)
 
 
-@router.post("/users/{user_id}/keys/generate")
+@router.post("/{user_id}/keys/generate", status_code=201)
 async def generate_key(
     request: Request,
+    response: Response,
     user_id: str,
-    label: str = Form(""),
+    body: GenerateKeyIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin_or_self),
-):
-    # Verify target user exists and is active
-    target_result = await db.execute(select(User).where(User.id == user_id))
-    target = target_result.scalar_one_or_none()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+) -> GeneratedKeyOut:
+    target = await _get_user_or_404(db, user_id)
+    if not target.is_active:
+        raise HTTPException(status_code=400, detail="Cannot generate keys for inactive user")
 
-    def _hx_error(detail: str) -> HTMLResponse:
-        return HTMLResponse(
-            html.escape(detail),
-            status_code=200,
-            headers={
-                "HX-Retarget": "#generate-key-error",
-                "HX-Reswap": "innerHTML",
-            },
-        )
+    # Check key limit
+    await _check_key_limit(user_id, db)
 
-    try:
-        if not target.is_active:
-            raise HTTPException(status_code=400, detail="Cannot generate keys for inactive user")
-
-        # Check key limit
-        await _check_key_limit(user_id, db)
-
-        # Default label when blank
-        label = _validate_label(label)
-        if not label:
-            label = f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
-
-    except HTTPException as exc:
-        if request.headers.get("HX-Request"):
-            return _hx_error(exc.detail)
-        raise
+    # Default label when blank
+    label = _validate_label(body.label)
+    if not label:
+        label = f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"
 
     # Generate Ed25519 keypair; use username as the key comment
     private_key_text, public_key_text = generate_ssh_keypair(comment=target.username)
@@ -545,37 +468,11 @@ async def generate_key(
         raise HTTPException(status_code=500, detail="Key generation failed")
 
     # Check for duplicate fingerprint (generated keys are unique in practice, but guard anyway)
-    try:
-        await _check_duplicate_fingerprint(db, user_id, key_info["fingerprint"])
-    except HTTPException as exc:
-        if request.headers.get("HX-Request"):
-            return _hx_error(exc.detail)
-        raise
+    await _check_duplicate_fingerprint(db, user_id, key_info["fingerprint"])
 
-    await _add_key(request, db, user, user_id, label, key_info, generated=True)
+    new_key = await _add_key(request, db, user, user_id, label, key_info, generated=True)
 
-    if request.headers.get("HX-Request"):
-        return templates.TemplateResponse(
-            request,
-            "partials/generated_key.html",
-            context={
-                "private_key": private_key_text,
-                "label": label,
-                "fingerprint": key_info["fingerprint"],
-                "keys": await _active_keys(db, user_id),
-                "target_user_id": user_id,
-                "user": user,
-            },
-            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-        )
-
-    safe_user_id = str(user_id).replace("\r", "").replace("\n", "")
-    logger.warning(
-        "Rejected non-HTMX SSH key generation response for user_id=%s",
-        safe_user_id,
-    )
-    return HTMLResponse(
-        content="SSH key generation requires the HTMX-enabled web UI.",
-        status_code=400,
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
+    # The private key is returned exactly once and never persisted server-side.
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return GeneratedKeyOut(private_key=private_key_text, key=ssh_key_out(new_key))

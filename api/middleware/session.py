@@ -13,7 +13,7 @@ logger = logging.getLogger("callis")
 
 class SessionMiddleware(BaseHTTPMiddleware):
     # Paths that don't need session loading
-    _SKIP_PATHS = ("/static/", "/health")
+    _SKIP_PATHS = ("/health", "/install.sh", "/callis.sh")
 
     async def dispatch(self, request: Request, call_next) -> Response:
         request.state.user = None

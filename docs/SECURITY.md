@@ -59,19 +59,24 @@ Every HTTP response carries:
 
 ```
 Content-Security-Policy: default-src 'self';
-  script-src 'self' https://unpkg.com https://cdn.jsdelivr.net;
-  style-src 'self' https://unpkg.com https://cdn.jsdelivr.net;
+  script-src 'self' 'sha256-…' (hash-allowlisted framework hydration scripts);
+  style-src 'self';
   img-src 'self' data:;
   font-src 'self';
   connect-src 'self';
   frame-ancestors 'none';
+  base-uri 'self';
+  form-action 'self';
 X-Frame-Options: DENY
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
 Strict-Transport-Security: max-age=31536000; includeSubDomains  (when HTTPS)
 ```
 
-Inline scripts are disallowed by CSP. htmx is loaded from a CDN allowlisted in the CSP. No eval, no inline event handlers.
+There are no CDN dependencies: all CSS and JavaScript is compiled into the
+image and served from `'self'`. Inline scripts are disallowed except for
+SvelteKit's own hydration bootstrap, which is allowlisted by content hash at
+render time. No eval, no inline event handlers.
 
 ---
 
@@ -168,15 +173,17 @@ Note on `PermitTTY no` + `ForceCommand /etc/ssh/callis-cmd.sh`: ForceCommand app
 ### Threat: XSS
 
 **Mitigations:**
-- Server-side rendering via Jinja2 — output is auto-escaped
-- Strict CSP — no inline scripts, CDN allowlist only
-- No user-controlled content is rendered unescaped anywhere
+- Server-side rendering via Svelte — all interpolated output is auto-escaped
+- Strict CSP — every source restricted to `'self'`, no CDNs, no inline scripts
+  beyond hash-allowlisted framework hydration
+- No user-controlled content is rendered unescaped anywhere (no `{@html}`)
 
 ### Threat: CSRF
 
 **Mitigations:**
 - `SameSite=Strict` cookies prevent cross-site form submissions from including the session cookie
-- htmx uses standard form submissions — no JSON API that could be hit cross-origin
+- The SSR server rejects any form-encoded POST whose `Origin` host does not match the request `Host` (see `frontend/src/hooks.server.ts`)
+- The JSON API is bound to loopback inside the container and only reachable through the SSR server
 
 ### Threat: SSH host key spoofing
 

@@ -10,10 +10,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         settings = get_settings()
 
+        # The API serves JSON only (the SSR frontend sets its own CSP for
+        # HTML pages), so everything locks down to 'self' with no CDN hosts.
         csp = (
             "default-src 'self'; "
-            "script-src 'self' https://unpkg.com https://cdn.jsdelivr.net; "
-            "style-src 'self' https://unpkg.com https://cdn.jsdelivr.net; "
+            "script-src 'self'; "
+            "style-src 'self'; "
             "img-src 'self' data:; "
             "font-src 'self'; "
             "connect-src 'self'; "

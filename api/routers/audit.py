@@ -1,6 +1,6 @@
 from datetime import datetime, time, timezone
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -8,16 +8,15 @@ from sqlalchemy.orm import selectinload
 from core import get_db
 from dependencies import require_role
 from models import AuditAction, AuditLog, User
-from templating import templates
+from schemas import AuditPageOut, UserRef, audit_entry_out
 
-router = APIRouter()
+router = APIRouter(prefix="/audit")
 
 PAGE_SIZE = 50
 
 
-@router.get("/audit")
+@router.get("")
 async def audit_log(
-    request: Request,
     page: int = Query(1, ge=1),
     action: str = Query(None),
     actor: str = Query(None),
@@ -25,7 +24,7 @@ async def audit_log(
     date_to: str = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("readonly")),
-):
+) -> AuditPageOut:
     query = select(AuditLog).options(selectinload(AuditLog.actor))
 
     # Apply filters
@@ -72,21 +71,11 @@ async def audit_log(
     users_result = await db.execute(select(User).order_by(User.username))
     all_users = users_result.scalars().all()
 
-    context = {
-        "entries": entries,
-        "user": user,
-        "page": page,
-        "total_pages": total_pages,
-        "total": total,
-        "actions": [a.value for a in AuditAction],
-        "all_users": all_users,
-        "filter_action": action or "",
-        "filter_actor": actor or "",
-        "filter_date_from": date_from or "",
-        "filter_date_to": date_to or "",
-    }
-
-    if request.headers.get("HX-Request"):
-        return templates.TemplateResponse(request, "partials/audit_rows.html", context=context)
-
-    return templates.TemplateResponse(request, "audit.html", context=context)
+    return AuditPageOut(
+        entries=[audit_entry_out(e) for e in entries],
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        actions=[a.value for a in AuditAction],
+        users=[UserRef(id=u.id, username=u.username) for u in all_users],
+    )

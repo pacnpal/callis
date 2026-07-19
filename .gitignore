@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Frontend sources — the Python packaging patterns above (lib/, build/) are
+# unanchored and would otherwise swallow frontend/src/lib. Re-include it.
+!frontend/src/lib/
+!frontend/src/lib/**

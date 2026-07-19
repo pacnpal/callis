@@ -1,7 +1,6 @@
-from collections import OrderedDict
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,20 +14,30 @@ from core import (
 )
 from dependencies import require_role
 from models import AuditAction, Setting, User
-from templating import templates
+from schemas import SettingFieldOut, SettingsOut
 
-router = APIRouter()
+router = APIRouter(prefix="/settings")
 
 
-def _grouped_settings(current_values: dict) -> OrderedDict:
-    """Group settings by their group label, preserving order."""
-    groups: OrderedDict[str, list] = OrderedDict()
+def _setting_fields(current_values: dict) -> list[SettingFieldOut]:
+    """Flatten CONFIGURABLE_SETTINGS metadata + effective values, preserving order."""
+    fields: list[SettingFieldOut] = []
     for key, meta in CONFIGURABLE_SETTINGS.items():
-        group = meta["group"]
-        if group not in groups:
-            groups[group] = []
-        groups[group].append({**meta, "key": key, "value": current_values.get(key, meta["default"])})
-    return groups
+        fields.append(
+            SettingFieldOut(
+                key=key,
+                label=meta["label"],
+                help=meta["help"],
+                type=meta["type"],
+                value=current_values.get(key, meta["default"]),
+                group=meta["group"],
+                choices=meta.get("choices"),
+                min=meta.get("min"),
+                max=meta.get("max"),
+                readonly=bool(meta.get("readonly")),
+            )
+        )
+    return fields
 
 
 def _installer_url(current_values: dict) -> str:
@@ -44,29 +53,22 @@ def _installer_url(current_values: dict) -> str:
     return f"{base_url}/install.sh"
 
 
-@router.get("/settings")
+@router.get("")
 async def settings_page(
-    request: Request,
     user: User = Depends(require_role("admin")),
-):
+) -> SettingsOut:
     db_settings = await load_db_settings()
     current = get_effective_settings(db_settings)
-    groups = _grouped_settings(current)
-
-    return templates.TemplateResponse(
-        request,
-        "settings.html",
-        context={"user": user, "groups": groups, "installer_url": _installer_url(current)},
-    )
+    return SettingsOut(fields=_setting_fields(current), installer_url=_installer_url(current))
 
 
-@router.post("/settings")
+@router.put("")
 async def save_settings(
     request: Request,
+    body: dict[str, str],
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
-):
-    form = await request.form()
+) -> SettingsOut:
     db_settings = await load_db_settings()
     old_values = get_effective_settings(db_settings)
     validation_errors: list[str] = []
@@ -80,29 +82,19 @@ async def save_settings(
     pending_deletes: list[str] = []      # keys whose DB rows should be removed
     pending_upserts: dict[str, str] = {} # key -> validated new_value to write
     changes: dict[str, dict] = {}
-    reverted_to: dict[str, str] = {}     # key -> effective value after revert (for form render)
+    reverted_to: dict[str, str] = {}     # key -> effective value after revert
 
     for key, meta in CONFIGURABLE_SETTINGS.items():
         if meta.get("readonly"):
             continue
 
-        submitted = form.get(key, "")
+        submitted = body.get(key, "")
         raw = submitted if meta["type"] == "text" else submitted.strip()
 
         # For string-like settings, an empty submission removes the DB override
-        # so the env-var / compiled default takes effect again.
-        if meta["type"] in {"str", "text"} and not raw:
-            if key in existing_map:
-                old_val = str(old_values.get(key, meta["default"]))
-                new_effective = str(get_effective_settings({}).get(key, meta["default"]))
-                changes[key] = {"old": old_val, "new": f"(reverted to: {new_effective})"}
-                pending_deletes.append(key)
-                reverted_to[key] = new_effective
-            continue
-
-        if not raw and meta["type"] == "int":
-            # Empty numeric submission: remove DB override to revert to env/default,
-            # same semantics as clearing a string field.
+        # so the env-var / compiled default takes effect again. Empty numeric
+        # submissions revert the same way.
+        if not raw and meta["type"] in {"str", "text", "int"}:
             if key in existing_map:
                 old_val = str(old_values.get(key, meta["default"]))
                 new_effective = str(get_effective_settings({}).get(key, meta["default"]))
@@ -153,17 +145,7 @@ async def save_settings(
 
     # If any field failed validation, return errors without persisting anything.
     if validation_errors:
-        return templates.TemplateResponse(
-            request,
-            "settings.html",
-            context={
-                "user": user,
-                "groups": _grouped_settings(old_values),
-                "installer_url": _installer_url(old_values),
-                "error": "; ".join(validation_errors),
-            },
-            status_code=400,
-        )
+        raise HTTPException(status_code=400, detail="; ".join(validation_errors))
 
     # Second pass: apply all validated changes atomically.
     for key in pending_deletes:
@@ -191,10 +173,8 @@ async def save_settings(
     # propagates to get_db()'s teardown which handles rollback; the cache
     # update below is never reached, so it never reflects unpersisted values.
     await db.commit()
-    # Update the in-memory cache directly with the committed mutations so that:
-    # (a) this response's template render sees the new instance_name / values,
-    # (b) there is no window where the cache is None and a concurrent request
-    #     can repopulate it with pre-commit (stale) data from the DB.
+    # Update the in-memory cache directly with the committed mutations so
+    # concurrent requests never repopulate it from stale pre-commit DB state.
     update_db_settings_cache(pending_upserts, pending_deletes)
 
     # Build the post-save view in memory from the validated changes so we
@@ -205,13 +185,7 @@ async def save_settings(
     for key, new_value in pending_upserts.items():
         current_values[key] = new_value
 
-    return templates.TemplateResponse(
-        request,
-        "settings.html",
-        context={
-            "user": user,
-            "groups": _grouped_settings(current_values),
-            "installer_url": _installer_url(current_values),
-            "success": "Settings saved." if changes else "No changes detected.",
-        },
+    return SettingsOut(
+        fields=_setting_fields(current_values),
+        installer_url=_installer_url(current_values),
     )
