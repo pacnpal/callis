@@ -28,7 +28,7 @@ RUN apt-get update && \
 COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:0.6.12 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /usr/local/bin/uv
 
 # --- API setup ---
 WORKDIR /app

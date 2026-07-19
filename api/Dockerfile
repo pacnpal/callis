@@ -7,7 +7,7 @@ ENV APP_VERSION=${APP_VERSION}
 ENV API_HOST=0.0.0.0
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:0.6.12 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
