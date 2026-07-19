@@ -1,18 +1,16 @@
 from datetime import datetime, time, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, register_template_filters
+from core import get_db
 from dependencies import require_role
 from models import AuditAction, AuditLog, User
+from templating import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-register_template_filters(templates)
 
 PAGE_SIZE = 50
 

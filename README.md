@@ -50,10 +50,12 @@ services:
     volumes:
       - callis_db:/data
       - callis_hostkeys:/etc/ssh/host_keys
+      - callis_sshd_logs:/var/log/callis
 
 volumes:
   callis_db:
   callis_hostkeys:
+  callis_sshd_logs:
 ```
 
 Or with `docker run`:
@@ -65,7 +67,6 @@ docker run -d \
   -p 8080:8080 \
   -p 2222:22 \
   -v callis_db:/data \
-  -v callis_audit:/audit \
   -v callis_hostkeys:/etc/ssh/host_keys \
   -v callis_sshd_logs:/var/log/callis \
   ghcr.io/pacnpal/callis:latest
@@ -212,8 +213,11 @@ Users connect directly to the SSH port; only the web UI goes through the reverse
 The Callis CLI lets you SSH to any assigned host by tag — no manual SSH config needed:
 
 ```bash
-# Add to your shell rc file (~/.bashrc, ~/.zshrc, etc.)
-source /path/to/callis/scripts/callis.sh
+# Install from your Callis server (adds the CLI to your shell rc file)
+curl -fsSL http://<your-callis-server>:8080/install.sh | sh
+
+# Or, from a source checkout, add to ~/.bashrc / ~/.zshrc manually:
+# source /path/to/callis/api/static/callis.sh
 
 # One-time setup
 callis setup
@@ -275,8 +279,9 @@ ssh my-internal-server
 | `SESSION_IDLE_TIMEOUT` | No | `1800` | Idle timeout in seconds (30 min) |
 | `SESSION_MAX_LIFETIME` | No | `28800` | Max session lifetime in seconds (8 hrs) |
 | `MAX_KEYS_PER_USER` | No | `5` | Maximum SSH keys per user |
-| `AUTH_MODE` | No | `local` | `local` or `oidc` |
+| `AUTH_MODE` | No | `local` | Only `local` is implemented today; OIDC support is planned |
 | `HTTPS_ENABLED` | No | `false` | Enable HSTS and Secure cookie flag |
+| `TRUSTED_PROXIES` | No | `*` | Comma-separated proxy IPs/CIDRs allowed to set `X-Forwarded-*` headers (only used when `HTTPS_ENABLED=true`) |
 | `DEV_MODE` | No | `false` | Enable development mode features (verbose SQL logging) |
 | `LOG_LEVEL` | No | `info` | Logging level |
 | `TZ` | No | `UTC` | Timezone |
@@ -354,6 +359,7 @@ See the `docs/` directory for detailed documentation:
 - [Security](docs/SECURITY.md) — security model, contracts, and threat model
 - [Deployment](docs/DEPLOYMENT.md) — deployment modes and configuration reference
 - [Development](docs/DEVELOPMENT.md) — local dev setup and contribution guide
+- [Svelte Migration](docs/SVELTE_MIGRATION.md) — proposed plan for a future Svelte frontend
 
 ---
 

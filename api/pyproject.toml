@@ -20,6 +20,20 @@ dependencies = [
     "pydantic-settings>=2.0.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+# This is a deployed application, not a distributable package — never build
+# or install the project itself, only its dependencies.
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

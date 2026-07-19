@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import io
 import logging
 import os
 import re
@@ -11,8 +12,10 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlparse
 
 import pyotp
+import qrcode
 from sqlalchemy import select
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -44,14 +47,14 @@ def get_app_version() -> str:
     In production, APP_VERSION is set via the --build-arg in the release workflow and baked
     into the image as an ENV. In local dev it falls back to 'dev'.
     """
-    import os
     return os.environ.get("APP_VERSION", "").strip() or "dev"
 
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
 
-_SECRET_KEY_FILE = "/data/.secret_key"
+# Overridable so dev/test environments don't collide with a real /data volume.
+_SECRET_KEY_FILE = os.environ.get("CALLIS_SECRET_KEY_FILE", "/data/.secret_key")
 
 
 def _fix_key_file_permissions(path: str = _SECRET_KEY_FILE) -> None:
@@ -324,20 +327,44 @@ def create_jwt(user_id: str) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
-def decode_jwt(token: str) -> dict | None:
+def decode_jwt_detailed(token: str) -> tuple[dict | None, str]:
+    """Decode a session JWT.
+
+    Returns (payload, reason). The payload is the signature-verified claims
+    dict, or None when the token cannot be trusted at all. Reasons:
+      - "ok": session is valid.
+      - "expired": signature valid but the absolute lifetime (exp) or the
+        idle timeout has passed — a real session that ended. The payload is
+        still returned so callers can attribute the expiry (e.g. audit logs).
+      - "invalid": bad signature, malformed token, or unparseable claims.
+    """
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM],
+            options={"verify_exp": False},
+        )
+    except (JWTError, ValueError, TypeError):
+        return None, "invalid"
+    try:
+        exp = int(payload.get("exp", 0))
+        if datetime.now(timezone.utc).timestamp() > exp:
+            return payload, "expired"
         # Check idle timeout
         last_activity_str = payload.get("last_activity")
         if last_activity_str:
             last_activity = datetime.fromisoformat(last_activity_str)
             idle = (datetime.now(timezone.utc) - last_activity).total_seconds()
             if idle > _get_session_idle_timeout_seconds():
-                return None
-        return payload
-    except (JWTError, ValueError, TypeError):
-        return None
+                return payload, "expired"
+    except (ValueError, TypeError):
+        return None, "invalid"
+    return payload, "ok"
+
+
+def decode_jwt(token: str) -> dict | None:
+    payload, reason = decode_jwt_detailed(token)
+    return payload if reason == "ok" else None
 
 
 def refresh_jwt(token: str) -> str | None:
@@ -405,6 +432,15 @@ def verify_totp(secret: str, code: str) -> bool:
 
 def get_totp_uri(secret: str, username: str) -> str:
     return pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name="Callis")
+
+
+def totp_qr_b64(secret: str, username: str) -> str:
+    """Render the TOTP provisioning URI as a base64-encoded PNG QR code."""
+    uri = get_totp_uri(secret, username)
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 # ---------------------------------------------------------------------------
@@ -860,6 +896,12 @@ def get_effective_settings(db_settings: dict[str, str]) -> dict[str, Any]:
             else:
                 result[key] = meta["default"]
     return result
+
+
+async def get_ssh_host() -> str:
+    """Hostname users should SSH to, derived from the effective base_url setting."""
+    base_url = await get_runtime_setting("base_url") or ""
+    return urlparse(base_url).hostname or "localhost"
 
 
 async def get_runtime_setting(key: str) -> Any:

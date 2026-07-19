@@ -3,7 +3,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 AuthorizedKeysFile none
-AuthorizedKeysCommand /etc/ssh/auth-keys.sh %u
+AuthorizedKeysCommand /etc/ssh/auth-keys.sh %u %f
 AuthorizedKeysCommandUser root
 HostKey /etc/ssh/host_keys/ssh_host_ed25519_key
 KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org

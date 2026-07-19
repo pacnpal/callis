@@ -1,11 +1,7 @@
 import asyncio
-import base64
-import io
 
-import qrcode
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -13,24 +9,29 @@ from core import (
     RESERVED_USERNAMES,
     USERNAME_RE,
     create_jwt,
+    decrypt_totp_secret,
     encrypt_totp_secret,
     generate_totp_secret,
     get_runtime_setting,
     get_session_factory,
     get_settings,
-    get_totp_uri,
     hash_password,
     limiter,
-    register_template_filters,
+    totp_qr_b64,
     verify_totp,
     write_audit_log,
 )
 from models import AuditAction, User, UserRole
 from dependencies import get_current_user
+from templating import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-register_template_filters(templates)
+
+# Context for rendering the shared TOTP enrollment template in wizard mode.
+_WIZARD_TOTP_CONTEXT = {
+    "form_action": "/setup/totp",
+    "button_label": "Verify & Complete Setup",
+}
 
 # Prevent concurrent first-run POSTs from creating multiple admin accounts.
 #
@@ -205,18 +206,16 @@ async def setup_totp_page(request: Request, user: User = Depends(get_current_use
     if not user.totp_secret:
         return RedirectResponse(url="/totp/setup", status_code=303)
 
-    from core import decrypt_totp_secret
     secret = decrypt_totp_secret(user.totp_secret)
-    uri = get_totp_uri(secret, user.username)
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    qr_b64 = base64.b64encode(buf.getvalue()).decode()
-
     return templates.TemplateResponse(
         request,
-        "setup_totp.html",
-        context={"user": user, "qr_code": qr_b64, "totp_secret": secret},
+        "totp_setup.html",
+        context={
+            "user": user,
+            "qr_code": totp_qr_b64(secret, user.username),
+            "totp_secret": secret,
+            **_WIZARD_TOTP_CONTEXT,
+        },
     )
 
 
@@ -236,19 +235,19 @@ async def setup_totp_verify(
     if not user.totp_secret:
         return RedirectResponse(url="/totp/setup", status_code=303)
 
-    from core import decrypt_totp_secret
     secret = decrypt_totp_secret(user.totp_secret)
 
     if not verify_totp(secret, totp_code):
-        uri = get_totp_uri(secret, user.username)
-        img = qrcode.make(uri)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        qr_b64 = base64.b64encode(buf.getvalue()).decode()
         return templates.TemplateResponse(
             request,
-            "setup_totp.html",
-            context={"user": user, "qr_code": qr_b64, "totp_secret": secret, "error": "Invalid code. Please try again."},
+            "totp_setup.html",
+            context={
+                "user": user,
+                "qr_code": totp_qr_b64(secret, user.username),
+                "totp_secret": secret,
+                "error": "Invalid code. Please try again.",
+                **_WIZARD_TOTP_CONTEXT,
+            },
             status_code=400,
         )
 

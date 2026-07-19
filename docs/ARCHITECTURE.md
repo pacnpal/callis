@@ -42,7 +42,7 @@ External access:
 Key behaviours:
 - On first start, generates an Ed25519 host key and persists it to a named volume.
 - Runs `sshd` with a hardened configuration (see Security document).
-- `AuthorizedKeysCommand` is set to `/etc/ssh/auth-keys.sh %u`, which makes an HTTP request to `http://localhost:8081/internal/keys/{username}` (with `X-Internal-Secret` header) and returns the active public keys for that user.
+- `AuthorizedKeysCommand` is set to `/etc/ssh/auth-keys.sh %u %f`, which makes an HTTP request to `http://localhost:8081/internal/keys/{username}` (with `X-Internal-Secret` header) and returns the active public keys for that user. The `%f` token carries the offered key's SHA-256 fingerprint, which the API uses to stamp the key's last-used time and write a `key_used` audit entry.
 - OS user accounts are created on-the-fly by `auth-keys.sh` during SSH authentication — only when the API returns valid keys for that username. Accounts are not pre-created.
 - When a user is deactivated, the API stops returning keys, so the next SSH auth attempt fails. The OS account is not explicitly removed.
 - OS user accounts use the system `nologin` shell (path resolved dynamically). They exist solely to satisfy OpenSSH's per-user key lookup.
@@ -65,55 +65,63 @@ The application is split across two listeners:
 **Framework stack:**
 - FastAPI — routing, dependency injection, request handling
 - Jinja2 — server-side HTML templating
-- htmx (CDN) — partial page updates without JavaScript files
+- htmx (CDN) — partial page updates without a frontend build step
 - Pico CSS (CDN) — classless styling
 - SQLAlchemy — ORM, supports SQLite (default) and PostgreSQL
-- `python-jose` — JWT creation and validation
-- `passlib[bcrypt]` — password hashing
+- `PyJWT` — JWT creation and validation
+- `bcrypt` — password hashing
 - `pyotp` — TOTP generation and validation
+- `cryptography` — TOTP secret encryption (Fernet), SSH keypair generation
 - `slowapi` — rate limiting
-- `uv` — dependency management
+- `uv` — dependency management (locked via `uv.lock`, installed with `--frozen`)
 
 **Directory layout:**
 ```
 api/
 ├── Dockerfile               # Standalone API image (for split deploys)
 ├── pyproject.toml
+├── uv.lock                  # Locked dependency versions (installed with --frozen)
 ├── main.py                  # App factory, mounts routers, middleware
 ├── core.py                  # Config, DB session, security utilities
 ├── models.py                # All SQLAlchemy models
 ├── dependencies.py          # get_current_user, require_role, require_totp
+├── templating.py            # Shared Jinja2Templates instance (filters registered once)
 ├── middleware/
 │   ├── security_headers.py  # CSP, HSTS, X-Frame-Options, etc.
-│   ├── session.py           # JWT cookie validation
+│   ├── session.py           # JWT cookie validation, session-expiry auditing
 │   ├── setup_guard.py       # Redirects to /setup when DB has no users
 │   └── totp_guard.py        # Enforces TOTP enrollment before access
 ├── routers/
 │   ├── auth.py              # /login, /logout, /totp/setup, /totp/verify
 │   ├── setup.py             # /setup — first-run setup wizard
-│   ├── users.py             # /users — CRUD, key management
+│   ├── users.py             # /users — CRUD, roles, key management
 │   ├── hosts.py             # /hosts — jump target management
 │   ├── audit.py             # /audit — log viewer
+│   ├── settings.py          # /settings — runtime configuration
 │   └── internal.py          # /internal/keys, /resolve, /hosts — sshd endpoints
 ├── static/
-│   ├── app.js               # Dialog open/close, htmx helpers
-│   └── style.css            # Custom styles (extends Pico CSS)
+│   ├── app.js               # Dialogs, copy/download, theme toggle, htmx helpers
+│   ├── theme.js             # Pre-render theme init (prevents FOUC)
+│   ├── style.css            # Custom styles (extends Pico CSS)
+│   └── callis.sh            # The Callis CLI (served at /callis.sh)
+├── tests/                   # Pytest suite (run with `uv run pytest`)
 └── templates/
     ├── base.html            # Nav, CDN links, flash messages
     ├── login.html
     ├── setup.html           # First-run setup wizard (admin account)
-    ├── setup_totp.html      # First-run setup wizard (TOTP enrollment)
-    ├── totp_setup.html      # Mandatory TOTP enrollment (existing users)
+    ├── totp_setup.html      # TOTP enrollment (wizard + regular flows, parameterized)
     ├── dashboard.html
     ├── users.html
     ├── user_detail.html
     ├── hosts.html
     ├── audit.html
+    ├── settings.html
     ├── 500.html             # Generic error page
     └── partials/            # htmx fragment responses
         ├── user_row.html
         ├── key_list.html
         ├── host_row.html
+        ├── generated_key.html
         ├── ssh_config.html
         └── audit_rows.html
 ```
@@ -271,15 +279,15 @@ callis/
 ├── README.md
 ├── .github/
 │   └── workflows/
+│       ├── ci.yml              # GitHub Actions: pytest + Docker build on push/PR
 │       └── release.yml         # GitHub Actions: build + push to GHCR on tag
 ├── docs/
 │   ├── REQUIREMENTS.md
 │   ├── ARCHITECTURE.md
 │   ├── SECURITY.md
 │   ├── DEPLOYMENT.md
-│   └── DEVELOPMENT.md
-├── scripts/
-│   └── callis.sh               # Client-side CLI (source into shell)
+│   ├── DEVELOPMENT.md
+│   └── SVELTE_MIGRATION.md     # Proposed future frontend migration plan
 ├── sshd/
 │   ├── Dockerfile              # Standalone sshd image (Alpine, for split deploys)
 │   ├── sshd_config
@@ -287,46 +295,7 @@ callis/
 │   ├── callis-cmd.sh           # ForceCommand script (resolve/list/deny)
 │   ├── banner.txt
 │   └── entrypoint.sh           # Standalone sshd entrypoint
-├── api/
-│   ├── Dockerfile              # Standalone API image (for split deploys)
-│   ├── pyproject.toml
-│   ├── main.py
-│   ├── core.py
-│   ├── models.py
-│   ├── dependencies.py
-│   ├── middleware/
-│   │   ├── security_headers.py
-│   │   ├── session.py
-│   │   ├── setup_guard.py
-│   │   └── totp_guard.py
-│   ├── routers/
-│   │   ├── auth.py
-│   │   ├── setup.py
-│   │   ├── users.py
-│   │   ├── hosts.py
-│   │   ├── audit.py
-│   │   └── internal.py
-│   ├── static/
-│   │   ├── app.js
-│   │   └── style.css
-│   └── templates/
-│       ├── base.html
-│       ├── login.html
-│       ├── setup.html
-│       ├── setup_totp.html
-│       ├── totp_setup.html
-│       ├── dashboard.html
-│       ├── users.html
-│       ├── user_detail.html
-│       ├── hosts.html
-│       ├── audit.html
-│       ├── 500.html
-│       └── partials/
-│           ├── user_row.html
-│           ├── key_list.html
-│           ├── host_row.html
-│           ├── ssh_config.html
-│           └── audit_rows.html
+├── api/                        # See §2.2 for the full API directory layout
 └── fail2ban/
     ├── jail.local
     └── filter.d/

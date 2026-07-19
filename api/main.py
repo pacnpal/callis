@@ -3,33 +3,27 @@ import logging
 import shlex
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from core import get_db, get_engine, get_runtime_setting, get_session_factory, get_settings, limiter, load_db_settings, register_template_filters
+from core import get_db, get_engine, get_runtime_setting, get_session_factory, get_settings, get_ssh_host, limiter, load_db_settings
 from dependencies import require_totp_complete
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from middleware.setup_guard import SetupGuardMiddleware
 from models import AuditLog, Base, Host, SSHKey, User
 from routers import auth, users, hosts, audit, setup, settings as settings_router
 from routers.internal import internal_app
+from templating import templates
 
 logger = logging.getLogger("callis")
-
-templates = Jinja2Templates(directory="templates")
-
-
-register_template_filters(templates)
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -41,6 +35,12 @@ async def lifespan(app: FastAPI):
     # (both `python main.py` via run_servers() and `uvicorn main:app` directly)
     await _init_db()
     await load_db_settings()
+
+    if get_settings().AUTH_MODE.lower() == "oidc":
+        logger.warning(
+            "AUTH_MODE=oidc is set but OIDC authentication is not implemented yet; "
+            "falling back to the built-in local username/password + TOTP flow."
+        )
 
     # Warn if no admin account has been created yet (first-run state)
     factory = get_session_factory()
@@ -137,9 +137,6 @@ async def dashboard(
     )
     recent_audit = audit_result.scalars().all()
 
-    # SSH host for config snippet
-    ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
-
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -149,7 +146,7 @@ async def dashboard(
             "active_hosts": active_hosts,
             "user_key_count": user_key_count,
             "recent_audit": recent_audit,
-            "ssh_host": ssh_host,
+            "ssh_host": await get_ssh_host(),
             "ssh_port": settings.SSH_PORT,
         },
     )

@@ -59,7 +59,6 @@ table { font-size: 0.9em; }
 .btn-sm { margin: 0; padding: 0.3rem 0.6rem; font-size: 0.85em; }
 .auth-card { max-width: 400px; margin: 2rem auto; }
 .setup-card { max-width: 500px; margin: 2rem auto; }
-.totp-card { max-width: 500px; margin: 2rem auto; }
 .totp-qr { text-align: center; margin: 1.5rem 0; }
 .totp-qr img { max-width: 250px; }
 .totp-secret { word-break: break-all; text-align: center; font-size: 1.1em; letter-spacing: 0.1em; }
@@ -122,3 +121,6 @@ table { font-size: 0.9em; }
 .badge-host_unassigned { background: #d97706; color: #fff; }
 .target-label { font-family: var(--pico-font-family-monospace, monospace); font-size: 0.85em; }
 .target-type { font-weight: 600; text-transform: capitalize; }
+.role-change-form { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.role-change-form select { width: auto; margin: 0; }
+.role-change-form button { margin: 0; white-space: nowrap; }

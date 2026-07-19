@@ -1,24 +1,76 @@
 import re
-from urllib.parse import urlparse
 
 import anyio
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_runtime_setting, get_settings, get_server_deploy_public_key, register_template_filters, slugify, write_audit_log
+from core import get_db, get_server_deploy_public_key, get_settings, get_ssh_host, slugify, write_audit_log
 from dependencies import require_role, require_totp_complete
 from models import AuditAction, Host, User, UserRole
+from templating import templates
 
 # Hostnames/IPv4 only; IPv6 literals (with colons) not yet supported
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-register_template_filters(templates)
+
+
+async def _all_active_users(db: AsyncSession) -> list[User]:
+    result = await db.execute(
+        select(User).where(User.is_active == True).order_by(User.username)
+    )
+    return result.scalars().all()
+
+
+async def _host_with_assignments(db: AsyncSession, host_id: str) -> Host | None:
+    result = await db.execute(
+        select(Host).options(selectinload(Host.assigned_users)).where(Host.id == host_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _hosts_page(request: Request, db: AsyncSession, user: User, *, error: str | None = None, status_code: int = 200):
+    """Render the full hosts page (also used to re-render with a form error)."""
+    result = await db.execute(
+        select(Host).options(selectinload(Host.assigned_users)).order_by(Host.created_at.desc())
+    )
+    hosts = result.scalars().all()
+
+    # Active users for assignment dropdowns and the deploy key (admin only)
+    all_users: list[User] = []
+    server_deploy_key = ""
+    if user.role == UserRole.admin:
+        all_users = await _all_active_users(db)
+        server_deploy_key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
+
+    context = {
+        "hosts": hosts,
+        "user": user,
+        "settings": get_settings(),
+        "ssh_host": await get_ssh_host(),
+        "all_users": all_users,
+        "server_deploy_key": server_deploy_key,
+    }
+    if error:
+        context["error"] = error
+    return templates.TemplateResponse(request, "hosts.html", context=context, status_code=status_code)
+
+
+async def _host_row_response(request: Request, db: AsyncSession, user: User, host_id: str, *, with_users: bool = False):
+    """Render the single-row partial used by htmx swaps on the hosts table."""
+    host = await _host_with_assignments(db, host_id)
+    context = {
+        "host": host,
+        "user": user,
+        "settings": get_settings(),
+        "ssh_host": await get_ssh_host(),
+    }
+    if with_users:
+        context["all_users"] = await _all_active_users(db)
+    return templates.TemplateResponse(request, "partials/host_row.html", context=context)
 
 
 @router.get("/hosts")
@@ -27,28 +79,7 @@ async def host_list(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_totp_complete),
 ):
-    result = await db.execute(
-        select(Host).options(selectinload(Host.assigned_users)).order_by(Host.created_at.desc())
-    )
-    hosts = result.scalars().all()
-    settings = get_settings()
-    ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
-
-    # Load all active users for assignment dropdowns (admin only)
-    all_users = []
-    server_deploy_key = ""
-    if user.role == UserRole.admin:
-        users_result = await db.execute(
-            select(User).where(User.is_active == True).order_by(User.username)
-        )
-        all_users = users_result.scalars().all()
-        server_deploy_key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
-
-    return templates.TemplateResponse(
-        request,
-        "hosts.html",
-        context={"hosts": hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users, "server_deploy_key": server_deploy_key},
-    )
+    return await _hosts_page(request, db, user)
 
 
 @router.post("/hosts")
@@ -62,24 +93,7 @@ async def create_host(
     user: User = Depends(require_role("admin")),
 ):
     async def _form_error(detail: str):
-        settings = get_settings()
-        ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
-        result = await db.execute(
-            select(Host).options(selectinload(Host.assigned_users)).order_by(Host.created_at.desc())
-        )
-        all_hosts = result.scalars().all()
-        au = []
-        server_deploy_key = ""
-        if user.role == UserRole.admin:
-            ur = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
-            au = ur.scalars().all()
-            server_deploy_key = await anyio.to_thread.run_sync(get_server_deploy_public_key)
-        return templates.TemplateResponse(
-            request,
-            "hosts.html",
-            context={"error": detail, "hosts": all_hosts, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": au, "server_deploy_key": server_deploy_key},
-            status_code=400,
-        )
+        return await _hosts_page(request, db, user, error=detail, status_code=400)
 
     # Validate label: strip whitespace, reject empty or control characters
     label = label.strip()
@@ -124,8 +138,6 @@ async def create_host(
         detail={"label": label, "hostname": hostname, "port": port},
     )
 
-    if request.headers.get("HX-Request"):
-        return RedirectResponse(url="/hosts", status_code=303)
     return RedirectResponse(url="/hosts", status_code=303)
 
 
@@ -153,17 +165,7 @@ async def deactivate_host(
     )
 
     if request.headers.get("HX-Request"):
-        result = await db.execute(
-            select(Host).options(selectinload(Host.assigned_users)).where(Host.id == host_id)
-        )
-        host = result.scalar_one()
-        settings = get_settings()
-        ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
-        return templates.TemplateResponse(
-            request,
-            "partials/host_row.html",
-            context={"host": host, "user": user, "settings": settings, "ssh_host": ssh_host},
-        )
+        return await _host_row_response(request, db, user, host_id)
     return RedirectResponse(url="/hosts", status_code=303)
 
 
@@ -206,10 +208,7 @@ async def assign_host(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
-    result = await db.execute(
-        select(Host).options(selectinload(Host.assigned_users)).where(Host.id == host_id)
-    )
-    host = result.scalar_one_or_none()
+    host = await _host_with_assignments(db, host_id)
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
 
@@ -232,19 +231,7 @@ async def assign_host(
 
     if request.headers.get("HX-Request"):
         await db.flush()
-        result = await db.execute(
-            select(Host).options(selectinload(Host.assigned_users)).where(Host.id == host_id)
-        )
-        host = result.scalar_one()
-        settings = get_settings()
-        ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
-        users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
-        all_users = users_result.scalars().all()
-        return templates.TemplateResponse(
-            request,
-            "partials/host_row.html",
-            context={"host": host, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
-        )
+        return await _host_row_response(request, db, user, host_id, with_users=True)
     return RedirectResponse(url="/hosts", status_code=303)
 
 
@@ -256,10 +243,7 @@ async def unassign_host(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_role("admin")),
 ):
-    result = await db.execute(
-        select(Host).options(selectinload(Host.assigned_users)).where(Host.id == host_id)
-    )
-    host = result.scalar_one_or_none()
+    host = await _host_with_assignments(db, host_id)
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
 
@@ -282,17 +266,5 @@ async def unassign_host(
 
     if request.headers.get("HX-Request"):
         await db.flush()
-        result = await db.execute(
-            select(Host).options(selectinload(Host.assigned_users)).where(Host.id == host_id)
-        )
-        host = result.scalar_one()
-        settings = get_settings()
-        ssh_host = urlparse(await get_runtime_setting("base_url")).hostname or "localhost"
-        users_result = await db.execute(select(User).where(User.is_active == True).order_by(User.username))
-        all_users = users_result.scalars().all()
-        return templates.TemplateResponse(
-            request,
-            "partials/host_row.html",
-            context={"host": host, "user": user, "settings": settings, "ssh_host": ssh_host, "all_users": all_users},
-        )
+        return await _host_row_response(request, db, user, host_id, with_users=True)
     return RedirectResponse(url="/hosts", status_code=303)

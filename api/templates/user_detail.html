@@ -11,7 +11,19 @@
       <dt>Email</dt>
       <dd>{{ target_user.email or "Not set" }}</dd>
       <dt>Role</dt>
-      <dd><span class="badge badge-{{ target_user.role.value }}">{{ target_user.role.value }}</span></dd>
+      <dd>
+        <span class="badge badge-{{ target_user.role.value }}">{{ target_user.role.value }}</span>
+        {% if user.role.value == "admin" and target_user.id != user.id %}
+        <form method="post" action="/users/{{ target_user.id }}/role" class="role-change-form">
+          <select name="role" aria-label="Change role">
+            {% for r in roles %}
+            <option value="{{ r }}" {% if target_user.role.value == r %}selected{% endif %}>{{ r }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="outline btn-sm">Change Role</button>
+        </form>
+        {% endif %}
+      </dd>
     </dl>
   </div>
   <div>

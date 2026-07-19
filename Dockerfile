@@ -14,10 +14,12 @@ COPY --from=ghcr.io/astral-sh/uv:0.6.12 /uv /usr/local/bin/uv
 
 # --- API setup ---
 WORKDIR /app
-COPY api/pyproject.toml ./
-RUN uv sync --no-dev --no-install-project
+# Copy the lockfile alongside pyproject and install with --frozen so builds
+# are reproducible: the image always gets exactly the locked versions.
+COPY api/pyproject.toml api/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 COPY api/ .
-RUN mkdir -p /data /audit /app/static
+RUN mkdir -p /data /app/static
 
 # --- SSHD setup ---
 COPY sshd/sshd_config /etc/ssh/sshd_config

@@ -148,7 +148,14 @@ cd api
 uv run pytest
 ```
 
-No test suite exists yet. When adding tests, place them in `api/tests/`. Every route should have at minimum:
+The suite in `api/tests/` covers the security-critical pure functions: SSH key
+parsing/validation, TOTP verification, password hashing, JWT session lifecycle
+(including idle/absolute expiry), slugify, username validation, and runtime
+settings merging. CI (`.github/workflows/ci.yml`) runs it on every push and PR,
+plus a full Docker image build.
+
+When adding route tests, keep them in `api/tests/`. Every route should have at
+minimum:
 - A test for unauthenticated access (should redirect to login)
 - A test for insufficient role (should return 403)
 - A test for the happy path
