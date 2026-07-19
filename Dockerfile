@@ -2,7 +2,7 @@
 # runtime stage receives compiled assets plus the bare `node` binary needed to
 # run the SSR server). `npm ci` against the committed package-lock.json makes
 # the build reproducible, mirroring `uv sync --frozen` for Python.
-FROM node:22-bookworm-slim AS webbuild
+FROM node:24-bookworm-slim AS webbuild
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
@@ -25,7 +25,7 @@ RUN apt-get update && \
 
 # Node runtime binary for the compiled SvelteKit SSR server (no npm, no
 # node_modules — the build output from stage 1 is fully self-contained).
-COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /usr/local/bin/uv
