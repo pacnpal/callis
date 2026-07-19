@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
-	import { confirm } from '$lib/actions/confirm';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import Dialog from '$lib/components/Dialog.svelte';
 	import SshConfigSection from '$lib/components/SshConfigSection.svelte';
@@ -162,8 +161,9 @@
 							<form
 								method="post"
 								action="?/revokeKey"
-								use:confirm={'Revoke this key? SSH access using this key will be denied immediately.'}
-								use:enhance
+								use:enhance={({ cancel }) => {
+									if (!window.confirm('Revoke this key? SSH access using this key will be denied immediately.')) cancel();
+								}}
 							>
 								<input type="hidden" name="key_id" value={key.id} />
 								<button type="submit" class="outline secondary btn-sm">Revoke</button>

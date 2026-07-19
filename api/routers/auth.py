@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,9 +49,10 @@ async def me(user: User = Depends(get_current_user)) -> SessionOut:
 @limiter.limit("5/15minutes")
 async def login_submit(
     request: Request,
+    response: Response,
     body: LoginIn,
     db: AsyncSession = Depends(get_db),
-):
+) -> SessionOut:
     error = HTTPException(status_code=401, detail="Invalid credentials")
     username = body.username.lower().strip()
 
@@ -114,9 +114,8 @@ async def login_submit(
     )
 
     token = create_jwt(user.id)
-    response = JSONResponse(SessionOut(user=user_out(user)).model_dump(mode="json"))
     set_session_cookie(response, token)
-    return response
+    return SessionOut(user=user_out(user))
 
 
 @router.get("/totp/setup")
@@ -149,7 +148,7 @@ async def totp_verify(
     body: TOTPVerifyIn,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> SessionOut:
     if user.totp_enrolled:
         raise HTTPException(status_code=409, detail="totp_already_enrolled")
 

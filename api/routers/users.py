@@ -2,7 +2,6 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -370,6 +369,7 @@ async def list_keys(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin_or_self),
 ) -> list[SSHKeyOut]:
+    await _get_user_or_404(db, user_id)
     result = await db.execute(
         select(SSHKey).where(SSHKey.user_id == user_id, SSHKey.is_active == True)
     )
@@ -439,11 +439,12 @@ async def revoke_key(
 @router.post("/{user_id}/keys/generate", status_code=201)
 async def generate_key(
     request: Request,
+    response: Response,
     user_id: str,
     body: GenerateKeyIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin_or_self),
-):
+) -> GeneratedKeyOut:
     target = await _get_user_or_404(db, user_id)
     if not target.is_active:
         raise HTTPException(status_code=400, detail="Cannot generate keys for inactive user")
@@ -472,9 +473,6 @@ async def generate_key(
     new_key = await _add_key(request, db, user, user_id, label, key_info, generated=True)
 
     # The private key is returned exactly once and never persisted server-side.
-    payload = GeneratedKeyOut(private_key=private_key_text, key=ssh_key_out(new_key))
-    return JSONResponse(
-        payload.model_dump(mode="json"),
-        status_code=201,
-        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return GeneratedKeyOut(private_key=private_key_text, key=ssh_key_out(new_key))

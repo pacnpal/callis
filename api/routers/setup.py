@@ -1,7 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -83,8 +82,9 @@ async def setup_status():
 @limiter.limit("10/minute")
 async def setup_submit(
     request: Request,
+    response: Response,
     body: SetupIn,
-):
+) -> SessionOut:
     if not await _is_setup_needed():
         raise HTTPException(status_code=404)
 
@@ -160,11 +160,8 @@ async def setup_submit(
 
     # Set session cookie so TOTP step is authenticated
     token = create_jwt(admin.id)
-    response = JSONResponse(
-        SessionOut(user=user_out(admin)).model_dump(mode="json"), status_code=201
-    )
     set_session_cookie(response, token)
-    return response
+    return SessionOut(user=user_out(admin))
 
 
 @router.get("/totp")
@@ -188,7 +185,7 @@ async def setup_totp_verify(
     request: Request,
     body: TOTPVerifyIn,
     user: User = Depends(get_current_user),
-):
+) -> SessionOut:
     if await _is_fully_setup():
         raise HTTPException(status_code=404)
 

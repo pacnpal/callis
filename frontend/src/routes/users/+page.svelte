@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
-	import { confirm } from '$lib/actions/confirm';
 	import Dialog from '$lib/components/Dialog.svelte';
 	import { formatDate } from '$lib/format';
 	import type { ActionData, PageData } from './$types';
@@ -143,8 +142,9 @@
 							<form
 								method="post"
 								action="?/delete"
-								use:confirm={`Delete user ${u.username}? This cannot be undone.`}
-								use:enhance
+								use:enhance={({ cancel }) => {
+									if (!window.confirm(`Delete user ${u.username}? This cannot be undone.`)) cancel();
+								}}
 							>
 								<input type="hidden" name="id" value={u.id} />
 								<button type="submit" class="outline contrast">Delete</button>

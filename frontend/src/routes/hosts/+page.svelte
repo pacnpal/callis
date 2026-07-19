@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
-	import { confirm } from '$lib/actions/confirm';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import Dialog from '$lib/components/Dialog.svelte';
 	import type { Host } from '$lib/types';
@@ -153,8 +152,9 @@
 										method="post"
 										action="?/unassign"
 										class="assign-form"
-										use:confirm={`Unassign ${u.username}?`}
-										use:enhance
+										use:enhance={({ cancel }) => {
+											if (!window.confirm(`Unassign ${u.username}?`)) cancel();
+										}}
 									>
 										<input type="hidden" name="id" value={host.id} />
 										<input type="hidden" name="target_user_id" value={u.id} />
@@ -202,8 +202,9 @@
 							<form
 								method="post"
 								action="?/delete"
-								use:confirm={`Delete host ${host.label}? This cannot be undone.`}
-								use:enhance
+								use:enhance={({ cancel }) => {
+									if (!window.confirm(`Delete host ${host.label}? This cannot be undone.`)) cancel();
+								}}
 							>
 								<input type="hidden" name="id" value={host.id} />
 								<button type="submit" class="outline contrast">Delete</button>
