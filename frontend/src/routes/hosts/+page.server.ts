@@ -1,6 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { apiAttempt, apiFetch, apiJson } from '$lib/server/api';
-import type { Host, UserListItem } from '$lib/types';
+import type { Group, Host, UserListItem } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 interface DeployKey {
@@ -9,7 +9,10 @@ interface DeployKey {
 
 export const load: PageServerLoad = async (event) => {
 	const { user } = await event.parent();
-	const hosts = await apiJson<Host[]>(event, '/api/v1/hosts');
+	const [hosts, groups] = await Promise.all([
+		apiJson<Host[]>(event, '/api/v1/hosts'),
+		apiJson<Group[]>(event, '/api/v1/groups')
+	]);
 
 	// Admin-only extras: assignable users + the server deploy key. Fetched
 	// concurrently; non-admins never trigger these requests.
@@ -32,7 +35,7 @@ export const load: PageServerLoad = async (event) => {
 		}
 	}
 
-	return { hosts, allUsers, deployKey, title: 'Hosts' };
+	return { hosts, groups, allUsers, deployKey, title: 'Hosts' };
 };
 
 export const actions: Actions = {
@@ -93,6 +96,78 @@ export const actions: Actions = {
 			event,
 			`/api/v1/hosts/${encodeURIComponent(id)}/unassign/${encodeURIComponent(userId)}`,
 			{ method: 'POST' }
+		);
+		if (!result.ok) return fail(result.status, { error: result.detail });
+		return {};
+	},
+	createGroup: async (event) => {
+		const form = await event.request.formData();
+		const name = String(form.get('name') ?? '');
+		const description = String(form.get('description') ?? '');
+		const result = await apiAttempt(event, '/api/v1/groups', {
+			method: 'POST',
+			body: { name, description }
+		});
+		if (!result.ok) {
+			return fail(result.status, { error: result.detail, groupValues: { name, description } });
+		}
+		return { groupCreated: true };
+	},
+	deleteGroup: async (event) => {
+		const form = await event.request.formData();
+		const id = String(form.get('id') ?? '');
+		const result = await apiAttempt(event, `/api/v1/groups/${encodeURIComponent(id)}`, {
+			method: 'DELETE'
+		});
+		if (!result.ok) return fail(result.status, { error: result.detail });
+		return {};
+	},
+	groupAddHost: async (event) => {
+		const form = await event.request.formData();
+		const id = String(form.get('id') ?? '');
+		const hostId = String(form.get('host_id') ?? '');
+		if (!hostId) return {};
+		const result = await apiAttempt(
+			event,
+			`/api/v1/groups/${encodeURIComponent(id)}/hosts/${encodeURIComponent(hostId)}`,
+			{ method: 'POST' }
+		);
+		if (!result.ok) return fail(result.status, { error: result.detail });
+		return {};
+	},
+	groupRemoveHost: async (event) => {
+		const form = await event.request.formData();
+		const id = String(form.get('id') ?? '');
+		const hostId = String(form.get('host_id') ?? '');
+		const result = await apiAttempt(
+			event,
+			`/api/v1/groups/${encodeURIComponent(id)}/hosts/${encodeURIComponent(hostId)}`,
+			{ method: 'DELETE' }
+		);
+		if (!result.ok) return fail(result.status, { error: result.detail });
+		return {};
+	},
+	groupAddUser: async (event) => {
+		const form = await event.request.formData();
+		const id = String(form.get('id') ?? '');
+		const userId = String(form.get('target_user_id') ?? '');
+		if (!userId) return {};
+		const result = await apiAttempt(
+			event,
+			`/api/v1/groups/${encodeURIComponent(id)}/users/${encodeURIComponent(userId)}`,
+			{ method: 'POST' }
+		);
+		if (!result.ok) return fail(result.status, { error: result.detail });
+		return {};
+	},
+	groupRemoveUser: async (event) => {
+		const form = await event.request.formData();
+		const id = String(form.get('id') ?? '');
+		const userId = String(form.get('target_user_id') ?? '');
+		const result = await apiAttempt(
+			event,
+			`/api/v1/groups/${encodeURIComponent(id)}/users/${encodeURIComponent(userId)}`,
+			{ method: 'DELETE' }
 		);
 		if (!result.ok) return fail(result.status, { error: result.detail });
 		return {};
