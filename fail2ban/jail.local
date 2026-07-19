@@ -1,6 +1,8 @@
 [sshd]
 enabled = true
-port = %(ENV{SSH_PORT})s
+# fail2ban cannot read environment variables in jail configs — if you change
+# SSH_PORT from the default 2222 in .env, update this port to match.
+port = 2222
 filter = sshd
 logpath = /var/log/callis-sshd/auth.log
 maxretry = 3

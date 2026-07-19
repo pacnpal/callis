@@ -59,7 +59,10 @@ elif [ -f "$SECRET_KEY_FILE" ]; then
     fi
     export SECRET_KEY="$PERSISTED_SECRET_KEY"
 else
-    export SECRET_KEY=$(openssl rand -hex 32)
+    # Two-step assignment so `set -e` catches an openssl failure (an
+    # `export VAR=$(cmd)` masks the command's exit status).
+    SECRET_KEY=$(openssl rand -hex 32)
+    export SECRET_KEY
     (
         umask 077
         printf '%s' "$SECRET_KEY" > "$SECRET_KEY_FILE"
@@ -73,7 +76,12 @@ fi
 
 # Derive internal API shared secret from SECRET_KEY via HMAC-SHA256
 if [ -n "${SECRET_KEY:-}" ] && [ -z "${CALLIS_INTERNAL_SECRET:-}" ]; then
-    export CALLIS_INTERNAL_SECRET=$(printf 'callis-internal' | openssl dgst -sha256 -hmac "$SECRET_KEY" -hex 2>/dev/null | awk '{print $NF}')
+    CALLIS_INTERNAL_SECRET=$(printf 'callis-internal' | openssl dgst -sha256 -hmac "$SECRET_KEY" -hex 2>/dev/null | awk '{print $NF}')
+    if [ -z "$CALLIS_INTERNAL_SECRET" ]; then
+        echo "FATAL: Could not derive CALLIS_INTERNAL_SECRET from SECRET_KEY." >&2
+        exit 1
+    fi
+    export CALLIS_INTERNAL_SECRET
 fi
 
 # Generate SSH host key if not present

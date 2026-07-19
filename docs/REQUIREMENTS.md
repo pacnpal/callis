@@ -49,13 +49,13 @@ The primary deployment target is homelab and small-team infrastructure environme
 ### 2.4 Host Management
 
 - **FR-HOST-01** — Admins MUST be able to define jump targets (hosts) with: label, hostname/IP, port, and description.
-- **FR-HOST-02** — Hosts MUST be assignable to users or groups, restricting which targets each user may jump to.
+- **FR-HOST-02** — Hosts MUST be assignable to users, restricting which targets each user may jump to. (Group-based assignment is a planned enhancement.)
 - **FR-HOST-03** — The web UI MUST display per-host the SSH client config snippet needed to use Callis as a ProxyJump for that host.
 - **FR-HOST-04** — Hosts MAY be deactivated without deletion.
 
 ### 2.5 Web UI Authentication
 
-- **FR-AUTH-01** — All web UI routes MUST require an authenticated session. The only unauthenticated routes are `/login` and `/health`.
+- **FR-AUTH-01** — All web UI routes MUST require an authenticated session. The only unauthenticated routes are `/login`, `/health`, the CLI installer endpoints (`/install.sh`, `/callis.sh`), and `/setup` (which locks itself down permanently once an admin account exists).
 - **FR-AUTH-02** — Authentication MUST use username and password. Passwords MUST be hashed with bcrypt at cost factor ≥ 12.
 - **FR-AUTH-03** — TOTP (RFC 6238) 2FA MUST be mandatory for all users. A user MUST complete TOTP enrollment before accessing any other page.
 - **FR-AUTH-04** — TOTP enrollment MUST present a QR code and manual secret entry on first login. The TOTP secret MUST be stored encrypted in the database. Backup codes are a future enhancement.
@@ -64,7 +64,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-AUTH-07** — Sessions MUST have a configurable absolute maximum lifetime regardless of activity (default: 8 hours).
 - **FR-AUTH-08** — Failed login attempts (wrong password OR wrong TOTP code) MUST return the same error message and take the same response time (constant-time comparison) to prevent user enumeration and timing attacks.
 - **FR-AUTH-09** — The `/auth/login` endpoint MUST be rate-limited: maximum 5 attempts per 15 minutes per IP address.
-- **FR-AUTH-10** — Optional OIDC integration MUST be supported via `AUTH_MODE=oidc` in `.env`. When enabled, the built-in password auth flow is replaced by OIDC redirect. TOTP enforcement is the responsibility of the OIDC provider in this mode.
+- **FR-AUTH-10** *(planned — not yet implemented)* — Optional OIDC integration via `AUTH_MODE=oidc` in `.env`. When enabled, the built-in password auth flow is replaced by OIDC redirect. TOTP enforcement is the responsibility of the OIDC provider in this mode. Until implemented, setting `AUTH_MODE=oidc` logs a startup warning and falls back to local auth.
 
 ### 2.6 Audit Logging
 
@@ -84,7 +84,7 @@ The primary deployment target is homelab and small-team infrastructure environme
   - Host deactivated/deleted
 - **FR-AUDIT-02** — Audit log entries MUST be append-only. No UI action or API call MUST be able to delete or modify audit log entries.
 - **FR-AUDIT-03** — The audit log MUST be viewable in the web UI with filtering by event type, user, and date range.
-- **FR-AUDIT-04** — Audit logs MUST be written to a persistent Docker volume.
+- **FR-AUDIT-04** — Audit logs MUST be persisted across container restarts. They are stored in the database, which lives on the persistent `/data` Docker volume.
 
 ### 2.7 Deployment
 
@@ -94,7 +94,7 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-DEPLOY-04** — The stack MUST work behind any standard reverse proxy (Caddy, Nginx, Traefik). TLS termination is the user's responsibility.
 - **FR-DEPLOY-05** — All configuration MUST be driven by environment variables documented in `.env.example`. No configuration file editing inside containers MUST be required.
 - **FR-DEPLOY-06** — The SSH port and web UI port MUST both be configurable via `.env`.
-- **FR-DEPLOY-07** — The stack MUST support `AUTH_MODE=local` (default) and `AUTH_MODE=oidc`.
+- **FR-DEPLOY-07** — The stack MUST support `AUTH_MODE=local` (default). `AUTH_MODE=oidc` is planned (see FR-AUTH-10).
 
 ---
 
@@ -102,8 +102,8 @@ The primary deployment target is homelab and small-team infrastructure environme
 
 ### 3.1 Security
 
-- **NFR-SEC-01** — The sshd container MUST be based on Alpine Linux to minimise attack surface.
-- **NFR-SEC-02** — The sshd container MUST run as a non-root user where possible. Only the entrypoint that creates OS user accounts requires elevated privilege.
+- **NFR-SEC-01** — The production image runs sshd and the API in a single unified container (`python:3.12-slim`) under supervisord; the standalone `sshd/Dockerfile` (for split deployments) MUST remain Alpine-based to minimise attack surface.
+- **NFR-SEC-02** — sshd MUST run with the minimum privilege OpenSSH allows: `PermitRootLogin no`, privilege-separated workers, and root used only for `AuthorizedKeysCommand` (which creates OS user accounts on the fly).
 - **NFR-SEC-03** — The API's internal key-serving endpoint (`/internal/keys/{username}`) MUST be bound to a separate internal port not exposed outside the Docker network. It MUST NOT be accessible via the public-facing web UI port.
 - **NFR-SEC-04** — All HTTP responses MUST include security headers: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Strict-Transport-Security` (when behind TLS).
 - **NFR-SEC-05** — The Content Security Policy MUST disallow inline scripts and restrict script sources to the CDN allowlist (htmx, Pico CSS).

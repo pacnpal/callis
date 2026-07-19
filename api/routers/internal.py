@@ -1,14 +1,18 @@
 import hashlib
 import hmac
+import logging
 import os
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core import get_session_factory, slugify
-from models import Host, SSHKey, User, user_host_assignment
+from core import get_session_factory, get_settings, slugify, write_audit_log
+from models import AuditAction, AuditLog, Host, SSHKey, User, user_host_assignment
+
+logger = logging.getLogger("callis")
 
 internal_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 router = APIRouter()
@@ -18,21 +22,31 @@ router = APIRouter()
 # Internal API auth middleware — validates X-Internal-Secret header
 # ---------------------------------------------------------------------------
 
+_internal_secret_cache: str | None = None
+
 
 def _get_internal_secret() -> str:
-    """Return the internal shared secret, derived from SECRET_KEY via HMAC."""
-    cached = os.environ.get("CALLIS_INTERNAL_SECRET", "")
-    if cached:
-        return cached
-    # Fallback: derive from SECRET_KEY (same formula as entrypoint.sh)
-    secret_key = os.environ.get("SECRET_KEY", "")
-    if not secret_key:
-        return ""
-    derived = hmac.new(
-        secret_key.encode(), b"callis-internal", hashlib.sha256
-    ).hexdigest()
-    os.environ["CALLIS_INTERNAL_SECRET"] = derived
-    return derived
+    """Return the internal shared secret, derived from SECRET_KEY via HMAC.
+
+    The CALLIS_INTERNAL_SECRET env var (set by entrypoint.sh) takes precedence;
+    otherwise the secret is derived from the resolved SECRET_KEY — the same
+    env-var → persisted-file → auto-generate resolution used everywhere else
+    (core.get_settings), and the same HMAC formula as entrypoint.sh.
+    """
+    global _internal_secret_cache
+    if _internal_secret_cache is not None:
+        return _internal_secret_cache
+
+    secret = os.environ.get("CALLIS_INTERNAL_SECRET", "")
+    if not secret:
+        secret_key = get_settings().SECRET_KEY
+        if not secret_key:
+            return ""
+        secret = hmac.new(
+            secret_key.encode(), b"callis-internal", hashlib.sha256
+        ).hexdigest()
+    _internal_secret_cache = secret
+    return secret
 
 
 class InternalSecretMiddleware(BaseHTTPMiddleware):
@@ -60,8 +74,68 @@ internal_app.add_middleware(InternalSecretMiddleware)
 # ---------------------------------------------------------------------------
 
 
+# Suppress duplicate KEY_USED audit rows for the same key within this window.
+# sshd invokes AuthorizedKeysCommand twice per connection (key offer + auth),
+# milliseconds apart — the window only needs to cover that double call, and is
+# kept short so separate rapid reconnections still get their own audit entries.
+_KEY_USED_DEDUP_WINDOW = timedelta(seconds=5)
+
+
+async def _record_key_usage(db, user: User, fingerprint: str) -> None:
+    """Mark the matching key as used and audit it (FR-KEY-05 / FR-AUDIT-01).
+
+    sshd passes the offered key's fingerprint (%f) via the `fp` query param.
+    Only fingerprints that match one of the user's active keys are recorded.
+
+    Known limitation: AuthorizedKeysCommand runs at key *offer* time, before
+    sshd has verified possession of the private key — OpenSSH provides no
+    post-auth hook that fires for ProxyJump (direct-tcpip) connections. A
+    client holding a user's full public key (not just its fingerprint) could
+    therefore create a key_used entry without completing authentication. This
+    grants no access; sshd's VERBOSE log remains the authoritative record of
+    accepted vs. failed authentications.
+    """
+    result = await db.execute(
+        select(SSHKey).where(
+            SSHKey.user_id == user.id,
+            SSHKey.fingerprint == fingerprint,
+            SSHKey.is_active == True,
+        )
+    )
+    key = result.scalar_one_or_none()
+    if not key:
+        return
+
+    now = datetime.now(timezone.utc)
+    key.last_used_at = now
+
+    recent = await db.execute(
+        select(AuditLog.timestamp)
+        .where(AuditLog.action == AuditAction.KEY_USED, AuditLog.target_id == key.id)
+        .order_by(AuditLog.timestamp.desc())
+        .limit(1)
+    )
+    last_logged = recent.scalar_one_or_none()
+    if last_logged is not None:
+        if last_logged.tzinfo is None:
+            last_logged = last_logged.replace(tzinfo=timezone.utc)
+        if now - last_logged < _KEY_USED_DEDUP_WINDOW:
+            await db.commit()
+            return
+
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.KEY_USED,
+        target_type="key",
+        target_id=key.id,
+        detail={"fingerprint": fingerprint, "username": user.username, "label": key.label},
+    )
+    await db.commit()
+
+
 @router.get("/internal/keys/{username}")
-async def get_keys(username: str):
+async def get_keys(username: str, fp: str = Query("")):
     factory = get_session_factory()
     async with factory() as db:
         # Find active user by username
@@ -71,6 +145,15 @@ async def get_keys(username: str):
         user = result.scalar_one_or_none()
         if not user:
             return PlainTextResponse("", status_code=200)
+
+        # Record key usage when sshd reports the offered key's fingerprint.
+        # Never let bookkeeping break authentication.
+        if fp:
+            try:
+                await _record_key_usage(db, user, fp.strip())
+            except Exception:
+                logger.exception("Failed to record SSH key usage for %r", username)
+                await db.rollback()
 
         # Get active keys
         keys_result = await db.execute(

@@ -45,6 +45,13 @@ These are non-negotiable rules enforced in code, not guidelines.
 - Audit log entries are append-only. No API route or UI action can delete or modify them.
 - All auth events, key events, and admin actions are logged.
 - Logs include: timestamp, actor, action, target, source IP, and action-specific metadata.
+- `key_used` entries (and key `last_used_at` timestamps) are recorded when sshd
+  looks up an offered key via `AuthorizedKeysCommand`. This happens at key
+  *offer* time — OpenSSH provides no post-authentication hook that fires for
+  ProxyJump (direct-tcpip) connections — so a client presenting a user's full
+  public key could create a `key_used` entry without completing
+  authentication. This grants no access. For the authoritative record of
+  accepted vs. failed authentications, use sshd's VERBOSE connection log.
 
 ### 1.6 Transport and Headers
 
@@ -78,7 +85,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 AuthorizedKeysFile none
-AuthorizedKeysCommand /etc/ssh/auth-keys.sh %u
+AuthorizedKeysCommand /etc/ssh/auth-keys.sh %u %f
 AuthorizedKeysCommandUser root
 
 HostKey /etc/ssh/host_keys/ssh_host_ed25519_key

@@ -3,7 +3,12 @@ set -e
 
 # Derive internal API shared secret from SECRET_KEY via HMAC-SHA256
 if [ -n "${SECRET_KEY:-}" ] && [ -z "${CALLIS_INTERNAL_SECRET:-}" ]; then
-    export CALLIS_INTERNAL_SECRET=$(printf 'callis-internal' | openssl dgst -sha256 -hmac "$SECRET_KEY" -hex 2>/dev/null | awk '{print $NF}')
+    CALLIS_INTERNAL_SECRET=$(printf 'callis-internal' | openssl dgst -sha256 -hmac "$SECRET_KEY" -hex 2>/dev/null | awk '{print $NF}')
+    if [ -z "$CALLIS_INTERNAL_SECRET" ]; then
+        echo "FATAL: Could not derive CALLIS_INTERNAL_SECRET from SECRET_KEY." >&2
+        exit 1
+    fi
+    export CALLIS_INTERNAL_SECRET
 fi
 
 HOST_KEY="/etc/ssh/host_keys/ssh_host_ed25519_key"

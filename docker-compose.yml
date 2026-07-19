@@ -10,7 +10,6 @@ services:
       - "${SSH_PORT:-2222}:22"
     volumes:
       - callis_db:/data
-      - callis_audit_logs:/audit
       - callis_hostkeys:/etc/ssh/host_keys
       - callis_sshd_logs:/var/log/callis
     env_file:
@@ -25,8 +24,8 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-    environment:
-      - SSH_PORT=${SSH_PORT:-2222}
+    # Note: fail2ban cannot read env vars in jail configs — if you change
+    # SSH_PORT, also update `port` in fail2ban/jail.local.
     volumes:
       - callis_sshd_logs:/var/log/callis-sshd:ro
       - ./fail2ban:/data
@@ -38,4 +37,3 @@ volumes:
   callis_db:
   callis_hostkeys:
   callis_sshd_logs:
-  callis_audit_logs:

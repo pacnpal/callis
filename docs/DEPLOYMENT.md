@@ -51,19 +51,11 @@ docker compose up -d
 
 The setup wizard runs on first load. The SSH port (2222) must be forwarded separately — it does not go through the reverse proxy.
 
-### Mode C — OIDC Authentication
+### Mode C — OIDC Authentication (planned — not yet implemented)
 
-Replace built-in password auth with an external OIDC provider (Authentik, Keycloak, Okta, etc.).
+OIDC support (Authentik, Keycloak, Okta, etc.) is on the roadmap but **not available yet**. Setting `AUTH_MODE=oidc` today logs a startup warning and falls back to the built-in local username/password + TOTP flow.
 
-Set in `.env`:
-```env
-AUTH_MODE=oidc
-OIDC_ISSUER=https://auth.example.com/application/o/callis/
-OIDC_CLIENT_ID=<your client ID>
-OIDC_CLIENT_SECRET=<your client secret>
-```
-
-In OIDC mode, Callis delegates authentication entirely to the OIDC provider. TOTP enforcement is the OIDC provider's responsibility. Users are created in Callis automatically on first OIDC login (JIT provisioning).
+The planned design: `AUTH_MODE=oidc` plus `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` in `.env` delegates authentication entirely to the OIDC provider (TOTP enforcement becomes the provider's responsibility), with users created in Callis automatically on first OIDC login (JIT provisioning).
 
 ---
 
@@ -73,7 +65,7 @@ In OIDC mode, Callis delegates authentication entirely to the OIDC provider. TOT
 |---|---|---|---|
 | `SECRET_KEY` | No | Auto-generated | 32+ byte hex string for JWT signing and TOTP encryption. Auto-generated and persisted to `/data/.secret_key` if not set. |
 | `DATABASE_URL` | No | `sqlite+aiosqlite:////data/callis.db` | SQLAlchemy DB URL. Use `postgresql+asyncpg://...` for PostgreSQL |
-| `SSH_PORT` | No | `2222` | External SSH port. When using the fail2ban profile, this value is automatically passed to the fail2ban container so bans are applied to the correct port. |
+| `SSH_PORT` | No | `2222` | External SSH port. fail2ban cannot read environment variables in jail configs — if you change this, also update `port` in `fail2ban/jail.local`. |
 | `WEB_PORT` | No | `8080` | External web UI port |
 | `BASE_URL` | No | `http://localhost:8080` | Public base URL — used in SSH config snippets shown to users |
 | `SESSION_IDLE_TIMEOUT` | No | `1800` | Session idle timeout in seconds (default: 30 min) |
@@ -120,8 +112,11 @@ The internal API (8081) is used by the sshd process to fetch authorized keys, re
 The Callis CLI lets you connect by host tag without managing `~/.ssh/config`:
 
 ```bash
-# Install: add to your shell rc file (~/.bashrc, ~/.zshrc, etc.)
-source /path/to/callis/scripts/callis.sh
+# Install from your Callis server (adds the CLI to your shell rc file)
+curl -fsSL http://<your-callis-server>:8080/install.sh | sh
+
+# Or, from a source checkout, add to your shell rc file manually:
+# source /path/to/callis/api/static/callis.sh
 
 # First-time setup
 callis setup

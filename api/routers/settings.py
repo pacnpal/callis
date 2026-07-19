@@ -2,7 +2,6 @@ from collections import OrderedDict
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,16 +10,14 @@ from core import (
     get_db,
     get_effective_settings,
     load_db_settings,
-    register_template_filters,
     update_db_settings_cache,
     write_audit_log,
 )
 from dependencies import require_role
 from models import AuditAction, Setting, User
+from templating import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-register_template_filters(templates)
 
 
 def _grouped_settings(current_values: dict) -> OrderedDict:

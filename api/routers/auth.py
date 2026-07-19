@@ -1,11 +1,7 @@
-import io
-import base64
 from datetime import datetime, timezone
 
-import qrcode
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,20 +13,18 @@ from core import (
     get_db,
     get_runtime_setting,
     get_settings,
-    get_totp_uri,
     hash_password,
     limiter,
-    register_template_filters,
+    totp_qr_b64,
     verify_password,
     verify_totp,
     write_audit_log,
 )
 from dependencies import get_current_user
 from models import AuditAction, User
+from templating import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-register_template_filters(templates)
 
 # Precomputed dummy hash for constant-time login checks (avoid hashing on every failed attempt)
 _DUMMY_HASH = hash_password("dummy-constant-time-check")
@@ -166,19 +160,12 @@ async def totp_setup_page(
         db_user.totp_secret = encrypt_totp_secret(secret)
         await db.flush()
 
-    # Generate QR code as base64
-    uri = get_totp_uri(secret, user.username)
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    qr_b64 = base64.b64encode(buf.getvalue()).decode()
-
     return templates.TemplateResponse(
         request,
         "totp_setup.html",
         context={
             "user": user,
-            "qr_code": qr_b64,
+            "qr_code": totp_qr_b64(secret, user.username),
             "totp_secret": secret,
         },
     )
@@ -204,18 +191,12 @@ async def totp_verify(
     secret = decrypt_totp_secret(db_user.totp_secret)
     if not verify_totp(secret, totp_code):
         # Re-render setup with error
-        uri = get_totp_uri(secret, db_user.username)
-        img = qrcode.make(uri)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        qr_b64 = base64.b64encode(buf.getvalue()).decode()
-
         return templates.TemplateResponse(
             request,
             "totp_setup.html",
             context={
                 "user": user,
-                "qr_code": qr_b64,
+                "qr_code": totp_qr_b64(secret, db_user.username),
                 "totp_secret": secret,
                 "error": "Invalid code. Please try again.",
             },
