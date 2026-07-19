@@ -350,3 +350,167 @@ async def test_unauthenticated_requests_rejected(client):
         assert (await fresh.get("/api/v1/meta")).status_code == 200
         assert (await fresh.get("/health")).status_code == 200
         assert (await fresh.get("/install.sh")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_recovery_codes_flow(client):
+    # Complete the wizard by hand so we can capture the enrollment response
+    r = await client.post(
+        "/api/v1/setup",
+        json={
+            "username": "admin",
+            "password": ADMIN_PASSWORD,
+            "password_confirm": ADMIN_PASSWORD,
+            "display_name": "Administrator",
+        },
+    )
+    assert r.status_code == 201, r.text
+    secret = (await client.get("/api/v1/setup/totp")).json()["secret"]
+    r = await client.post(
+        "/api/v1/setup/totp/verify", json={"totp_code": pyotp.TOTP(secret).now()}
+    )
+    assert r.status_code == 200, r.text
+    codes = r.json()["recovery_codes"]
+    assert len(codes) == 10
+
+    admin_id = (await client.get("/api/v1/auth/me")).json()["user"]["id"]
+
+    # A recovery code substitutes for the TOTP code at login...
+    await client.post("/api/v1/auth/logout")
+    r = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": ADMIN_PASSWORD, "totp_code": codes[0]},
+    )
+    assert r.status_code == 200, r.text
+
+    # ...exactly once
+    await client.post("/api/v1/auth/logout")
+    r = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": ADMIN_PASSWORD, "totp_code": codes[0]},
+    )
+    assert r.status_code == 401
+
+    # TOTP login still works, and the profile reports remaining codes
+    r = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": ADMIN_PASSWORD, "totp_code": pyotp.TOTP(secret).now()},
+    )
+    assert r.status_code == 200, r.text
+    r = await client.get(f"/api/v1/users/{admin_id}")
+    assert r.json()["recovery_codes_remaining"] == 9
+
+    # The use is audited
+    r = await client.get("/api/v1/audit", params={"action": "recovery_code_used"})
+    assert r.json()["total"] == 1
+
+    # Regeneration invalidates the old set
+    r = await client.post(f"/api/v1/users/{admin_id}/recovery-codes")
+    assert r.status_code == 200, r.text
+    new_codes = r.json()["codes"]
+    assert len(new_codes) == 10
+    assert set(new_codes).isdisjoint(codes)
+
+    await client.post("/api/v1/auth/logout")
+    r = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": ADMIN_PASSWORD, "totp_code": codes[1]},
+    )
+    assert r.status_code == 401  # old code dead
+    r = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": ADMIN_PASSWORD, "totp_code": new_codes[0]},
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_host_groups_flow(client):
+    await complete_setup(client)
+
+    r = await client.post(
+        "/api/v1/hosts",
+        json={"label": "Prod Web", "hostname": "web.internal", "port": 22},
+    )
+    assert r.status_code == 201, r.text
+    host_id = r.json()["id"]
+
+    r = await client.post(
+        "/api/v1/users",
+        json={"username": "bob", "password": USER_PASSWORD},
+    )
+    assert r.status_code == 201, r.text
+    bob_id = r.json()["id"]
+
+    # Create a group; duplicate names are rejected
+    r = await client.post("/api/v1/groups", json={"name": "prod", "description": "Production"})
+    assert r.status_code == 201, r.text
+    group_id = r.json()["id"]
+    r = await client.post("/api/v1/groups", json={"name": "prod"})
+    assert r.status_code == 400
+
+    # Add the host and bob to the group
+    r = await client.post(f"/api/v1/groups/{group_id}/hosts/{host_id}")
+    assert r.status_code == 200 and [h["id"] for h in r.json()["hosts"]] == [host_id]
+    r = await client.post(f"/api/v1/groups/{group_id}/users/{bob_id}")
+    assert r.status_code == 200 and [u["id"] for u in r.json()["users"]] == [bob_id]
+
+    r = await client.get("/api/v1/groups")
+    assert r.status_code == 200
+    assert len(r.json()) == 1
+
+    # Bob's effective access now includes the group's host
+    r = await client.get(f"/api/v1/users/{bob_id}")
+    body = r.json()
+    assert [h["label"] for h in body["assigned_hosts"]] == ["Prod Web"]
+    assert [g["name"] for g in body["host_groups"]] == ["prod"]
+
+    # Removing the host from the group revokes the group-granted access
+    r = await client.delete(f"/api/v1/groups/{group_id}/hosts/{host_id}")
+    assert r.status_code == 200 and r.json()["hosts"] == []
+    r = await client.get(f"/api/v1/users/{bob_id}")
+    assert r.json()["assigned_hosts"] == []
+
+    # Delete the group
+    r = await client.delete(f"/api/v1/groups/{group_id}")
+    assert r.status_code == 204
+    assert (await client.get("/api/v1/groups")).json() == []
+
+    # Membership changes are audited
+    r = await client.get("/api/v1/audit", params={"action": "group_host_added"})
+    assert r.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sessions_endpoints(client):
+    from models import SshSession
+
+    await complete_setup(client)
+
+    r = await client.get("/api/v1/sessions")
+    assert r.status_code == 200
+    assert r.json() == {"active": [], "recent": []}
+
+    r = await client.post("/api/v1/sessions/nonexistent/terminate")
+    assert r.status_code == 404
+
+    # Seed an open session row as the tracker would
+    factory = core.get_session_factory()
+    async with factory() as db:
+        db.add(
+            SshSession(username="alice", source_ip="203.0.113.5", source_port=50000)
+        )
+        await db.commit()
+
+    r = await client.get("/api/v1/sessions")
+    active = r.json()["active"]
+    assert len(active) == 1 and active[0]["username"] == "alice"
+    session_id = active[0]["id"]
+
+    # No process owns that connection in the test environment: the record
+    # must stay open and the endpoint must say so instead of faking a close.
+    r = await client.post(f"/api/v1/sessions/{session_id}/terminate")
+    assert r.status_code == 409
+    assert r.json()["detail"] == "session_process_not_found"
+    r = await client.get("/api/v1/sessions")
+    assert len(r.json()["active"]) == 1

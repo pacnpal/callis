@@ -74,10 +74,51 @@ export interface Meta {
 	setup_needed: boolean;
 }
 
+export interface HostRef {
+	id: string;
+	label: string;
+}
+
+export interface GroupRef {
+	id: string;
+	name: string;
+}
+
+export interface Group {
+	id: string;
+	name: string;
+	description: string | null;
+	created_at: string;
+	hosts: HostRef[];
+	users: UserRef[];
+}
+
+export interface SshSession {
+	id: string;
+	username: string;
+	source_ip: string;
+	source_port: number;
+	key_fingerprint: string | null;
+	started_at: string;
+	ended_at: string | null;
+	close_reason: string | null;
+}
+
+export interface Sessions {
+	active: SshSession[];
+	recent: SshSession[];
+}
+
+export interface RecoveryCodes {
+	codes: string[];
+}
+
 export interface UserDetail {
 	user: User;
 	keys: SSHKey[];
 	assigned_hosts: Host[];
+	host_groups: GroupRef[];
+	recovery_codes_remaining: number;
 	ssh_host: string;
 	ssh_port: number;
 	roles: string[];
@@ -86,6 +127,7 @@ export interface UserDetail {
 export interface Dashboard {
 	active_users: number;
 	active_hosts: number;
+	active_sessions: number;
 	user_key_count: number;
 	recent_audit: AuditEntry[];
 	ssh_host: string;
@@ -117,4 +159,9 @@ export interface TOTPSetup {
 
 export interface Session {
 	user: User;
+}
+
+export interface Enroll extends Session {
+	/** One-time 2FA recovery codes, returned exactly once at enrollment. */
+	recovery_codes: string[];
 }

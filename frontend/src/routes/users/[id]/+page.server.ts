@@ -67,5 +67,17 @@ export const actions: Actions = {
 		);
 		if (!result.ok) return fail(result.status, { error: result.detail });
 		return {};
+	},
+	regenerateRecoveryCodes: async (event) => {
+		const result = await apiAttempt<{ codes: string[] }>(
+			event,
+			`/api/v1/users/${encodeURIComponent(event.params.id)}/recovery-codes`,
+			{ method: 'POST' }
+		);
+		if (!result.ok) return fail(result.status, { error: result.detail });
+		// The codes exist only in this one response — never persisted in
+		// plaintext server-side and gone when the page re-renders.
+		event.setHeaders({ 'cache-control': 'no-store' });
+		return { recoveryCodes: result.data.codes };
 	}
 };

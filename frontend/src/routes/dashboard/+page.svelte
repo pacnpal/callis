@@ -26,6 +26,10 @@
 		<p class="stat-value">{d.active_hosts}</p>
 	</article>
 	<article>
+		<header><a href="/sessions">Active Sessions</a></header>
+		<p class="stat-value">{d.active_sessions}</p>
+	</article>
+	<article>
 		<header>Your Keys</header>
 		<p class="stat-value">{d.user_key_count}</p>
 	</article>

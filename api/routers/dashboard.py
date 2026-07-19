@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from core import get_db, get_settings, get_ssh_host
 from dependencies import require_totp_complete
-from models import AuditLog, Host, SSHKey, User
+from models import AuditLog, Host, SSHKey, SshSession, User
 from schemas import DashboardOut, audit_entry_out
 
 router = APIRouter()
@@ -36,6 +36,11 @@ async def dashboard(
     )
     user_key_count = key_count_result.scalar()
 
+    active_sessions_result = await db.execute(
+        select(func.count()).select_from(SshSession).where(SshSession.ended_at.is_(None))
+    )
+    active_sessions = active_sessions_result.scalar()
+
     # Recent audit (last 10)
     audit_result = await db.execute(
         select(AuditLog)
@@ -48,6 +53,7 @@ async def dashboard(
     return DashboardOut(
         active_users=active_users,
         active_hosts=active_hosts,
+        active_sessions=active_sessions,
         user_key_count=user_key_count,
         recent_audit=[audit_entry_out(e) for e in recent_audit],
         ssh_host=await get_ssh_host(),

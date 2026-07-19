@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import CopyButton from '$lib/components/CopyButton.svelte';
 	import Dialog from '$lib/components/Dialog.svelte';
+	import RecoveryCodes from '$lib/components/RecoveryCodes.svelte';
 	import SshConfigSection from '$lib/components/SshConfigSection.svelte';
 	import { formatDate, formatDateTime } from '$lib/format';
 	import type { ActionData, PageData } from './$types';
@@ -12,6 +13,12 @@
 	const me = $derived(page.data.user!);
 	const target = $derived(data.detail.user);
 	const generated = $derived(form && 'generated' in form ? form.generated : null);
+	const regeneratedCodes = $derived(
+		form && 'recoveryCodes' in form ? (form.recoveryCodes ?? null) : null
+	);
+	const canManageRecoveryCodes = $derived(
+		target.is_active && target.totp_enrolled && (me.role === 'admin' || me.id === target.id)
+	);
 
 	let generateOpen = $state(false);
 
@@ -74,6 +81,42 @@
 			</dd>
 			<dt>Authenticator App</dt>
 			<dd>{target.totp_enrolled ? 'Enrolled' : 'Not enrolled'}</dd>
+			{#if target.totp_enrolled}
+				<dt>Recovery Codes</dt>
+				<dd>
+					{data.detail.recovery_codes_remaining} unused
+					{#if canManageRecoveryCodes}
+						<form
+							method="post"
+							action="?/regenerateRecoveryCodes"
+							class="role-change-form"
+							use:enhance={({ cancel }) => {
+								if (
+									!window.confirm(
+										'Generate new recovery codes? All existing codes will stop working immediately.'
+									)
+								)
+									cancel();
+							}}
+						>
+							<button type="submit" class="outline btn-sm">Regenerate</button>
+						</form>
+					{/if}
+				</dd>
+			{/if}
+			<dt>Host Groups</dt>
+			<dd>
+				{#each data.detail.host_groups as g (g.id)}
+					<span class="badge">{g.name}</span>
+				{:else}
+					<span class="text-muted">None</span>
+				{/each}
+				{#if me.role === 'admin'}
+					<br /><span class="text-small text-muted">
+						Manage group membership on the <a href="/hosts">Hosts</a> page.
+					</span>
+				{/if}
+			</dd>
 			<dt>Created</dt>
 			<dd>{formatDateTime(target.created_at)}</dd>
 			<dt>Last Login</dt>
@@ -81,6 +124,16 @@
 		</dl>
 	</div>
 </div>
+
+{#if regeneratedCodes}
+	<RecoveryCodes
+		codes={regeneratedCodes}
+		heading={me.id === target.id
+			? 'Your New Recovery Codes'
+			: `New Recovery Codes for ${target.username}`}
+		continueHref={null}
+	/>
+{/if}
 
 <hr />
 

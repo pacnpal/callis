@@ -91,6 +91,8 @@ The application is split across two listeners:
 - `slowapi` — rate limiting
 - `uv` — dependency management (locked via `uv.lock`, installed with `--frozen`)
 
+The api process also runs a **session tracker** (started in the FastAPI lifespan): it tails the sshd log (`/var/log/callis/auth.log`, the same file the fail2ban sidecar reads) and records accepted connections and disconnects as `SshSession` rows with `session_opened`/`session_closed` audit entries. The tracker persists its read position so an API-only restart resumes where it stopped, and the startup sweep only closes records whose connection is no longer established. In the unified container, admins can terminate a session from the web UI — the tracker locates the per-connection sshd child via `/proc/net/tcp{,6}` socket-inode matching and signals it (api and sshd share a PID namespace).
+
 **Directory layout:**
 ```
 api/
@@ -98,10 +100,11 @@ api/
 ├── pyproject.toml
 ├── uv.lock                  # Locked dependency versions (installed with --frozen)
 ├── main.py                  # App factory, mounts /api/v1 routers, middleware
-├── core.py                  # Config, DB session, security utilities
+├── core.py                  # Config, DB session, security utilities, effective-host resolution
 ├── models.py                # All SQLAlchemy models
 ├── schemas.py               # Pydantic response/request schemas for /api/v1
 ├── dependencies.py          # get_current_user, require_role, require_totp
+├── session_tracker.py       # Tails the sshd log into SshSession rows; /proc-based termination
 ├── middleware/
 │   ├── security_headers.py  # CSP, HSTS, X-Frame-Options, etc.
 │   ├── session.py           # JWT cookie validation, session-expiry auditing
@@ -110,8 +113,10 @@ api/
 ├── routers/
 │   ├── auth.py              # /api/v1/auth — login, logout, me, TOTP enrollment
 │   ├── setup.py             # /api/v1/setup — first-run wizard endpoints
-│   ├── users.py             # /api/v1/users — CRUD, roles, key management
+│   ├── users.py             # /api/v1/users — CRUD, roles, key management, recovery codes
 │   ├── hosts.py             # /api/v1/hosts — jump targets, assignments, deploy key
+│   ├── groups.py            # /api/v1/groups — host groups (bulk access assignment)
+│   ├── sessions.py          # /api/v1/sessions — live SSH session view + admin terminate
 │   ├── audit.py             # /api/v1/audit — filterable, paginated log
 │   ├── settings.py          # /api/v1/settings — runtime configuration
 │   ├── dashboard.py         # /api/v1/dashboard — stats + recent activity
@@ -191,6 +196,36 @@ Host
 UserHostAssignment
 ├── user_id (FK → User)
 └── host_id (FK → Host)
+
+HostGroup
+├── id (UUID)
+├── name (unique)
+├── description
+└── created_at
+    (membership via HostGroupHosts [group_id, host_id] and
+     HostGroupUsers [group_id, user_id]; a user's effective host access
+     is direct assignments ∪ group memberships — core.get_effective_hosts,
+     the single source of truth used by the internal API and the web UI)
+
+RecoveryCode
+├── id (UUID)
+├── user_id (FK → User)
+├── code_digest (HMAC-SHA256, keyed by SECRET_KEY)
+├── used_at (null = unused)
+└── created_at
+
+SshSession
+├── id (UUID)
+├── user_id (FK → User, SET NULL on user deletion)
+├── username (denormalized)
+├── source_ip / source_port
+├── key_fingerprint
+├── started_at / ended_at
+└── close_reason (disconnected | terminated | server_restart)
+
+SessionTrackerState (single row)
+├── log_inode / log_offset (BigInteger — resume point in the sshd log)
+└── updated_at
 
 AuditLog
 ├── id (UUID)

@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -11,20 +11,25 @@ from core import (
     USERNAME_RE,
     generate_ssh_keypair,
     get_db,
+    get_effective_hosts,
     get_runtime_setting,
     get_settings,
     get_ssh_host,
     hash_password,
+    issue_recovery_codes,
     parse_ssh_public_key,
+    unused_recovery_code_count,
     write_audit_log,
 )
 from dependencies import require_admin_or_self, require_role
-from models import AuditAction, Host, SSHKey, User, UserRole
+from models import AuditAction, Host, SSHKey, SshSession, User, UserRole
 from schemas import (
     ChangeRoleIn,
     CreateUserIn,
     GeneratedKeyOut,
     GenerateKeyIn,
+    GroupRef,
+    RecoveryCodesOut,
     SSHKeyOut,
     UploadKeyIn,
     UserDetailOut,
@@ -92,7 +97,7 @@ async def user_detail(
         select(User)
         .options(
             selectinload(User.ssh_keys),
-            selectinload(User.assigned_hosts).selectinload(Host.assigned_users),
+            selectinload(User.host_groups),
         )
         .where(User.id == user_id)
     )
@@ -100,11 +105,27 @@ async def user_detail(
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Effective access: direct assignments plus host-group membership, so the
+    # generated SSH config always matches what the bastion will permit.
+    effective = await get_effective_hosts(db, target_user.id)
+    effective_ids = [h.id for h in effective]
+    hosts_with_assignments = []
+    if effective_ids:
+        hosts_result = await db.execute(
+            select(Host)
+            .options(selectinload(Host.assigned_users))
+            .where(Host.id.in_(effective_ids))
+            .order_by(Host.label)
+        )
+        hosts_with_assignments = hosts_result.scalars().all()
+
     settings = get_settings()
     return UserDetailOut(
         user=user_out(target_user),
         keys=[ssh_key_out(k) for k in target_user.ssh_keys if k.is_active],
-        assigned_hosts=[host_out(h) for h in target_user.assigned_hosts if h.is_active],
+        assigned_hosts=[host_out(h) for h in hosts_with_assignments],
+        host_groups=[GroupRef(id=g.id, name=g.name) for g in target_user.host_groups],
+        recovery_codes_remaining=await unused_recovery_code_count(db, target_user.id),
         ssh_host=await get_ssh_host(),
         ssh_port=settings.SSH_PORT,
         roles=[r.value for r in UserRole],
@@ -266,6 +287,15 @@ async def delete_user(
     target = await _get_user_or_404(db, user_id)
 
     username = target.username
+
+    # Detach retained session history explicitly: SQLite does not enforce the
+    # column's ondelete=SET NULL without PRAGMA foreign_keys, and no ORM
+    # relationship cascades onto SshSession. The denormalized username on the
+    # session row keeps the history attributable.
+    await db.execute(
+        update(SshSession).where(SshSession.user_id == user_id).values(user_id=None)
+    )
+
     await db.delete(target)
 
     await write_audit_log(
@@ -278,6 +308,37 @@ async def delete_user(
         detail={"username": username},
     )
     return Response(status_code=204)
+
+
+@router.post("/{user_id}/recovery-codes")
+async def regenerate_recovery_codes(
+    request: Request,
+    response: Response,
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_self),
+) -> RecoveryCodesOut:
+    target = await _get_user_or_404(db, user_id)
+    if not target.is_active:
+        raise HTTPException(status_code=400, detail="Cannot generate recovery codes for inactive user")
+    if not target.totp_enrolled:
+        raise HTTPException(status_code=400, detail="User has not completed 2FA enrollment")
+
+    codes = await issue_recovery_codes(db, user_id)
+    await write_audit_log(
+        db,
+        actor_id=user.id,
+        action=AuditAction.RECOVERY_CODES_GENERATED,
+        target_type="user",
+        target_id=user_id,
+        source_ip=request.client.host if request.client else None,
+        detail={"count": len(codes), "source": "regenerated", "target_username": target.username},
+    )
+
+    # The codes are returned exactly once and stored only as keyed digests.
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return RecoveryCodesOut(codes=codes)
 
 
 _LABEL_MAX_LEN = 100
