@@ -165,7 +165,22 @@ async def _handle_close(db, event: dict, reason: str = "disconnected") -> None:
     )
 
 
-async def apply_log_event(event: dict) -> None:
+async def _set_position_row(db, inode: int, offset: int) -> None:
+    row = await db.get(SessionTrackerState, 1)
+    if row is None:
+        row = SessionTrackerState(id=1)
+        db.add(row)
+    row.log_inode = inode
+    row.log_offset = offset
+
+
+async def apply_log_event(event: dict, position: tuple[int, int] | None = None) -> None:
+    """Apply one accept/close event; optionally advance the read position.
+
+    When ``position`` is given it is written in the SAME transaction as the
+    event, so a committed event can never be replayed after a crash — the
+    persisted offset always points past exactly the events that committed.
+    """
     factory = get_session_factory()
     async with factory() as db:
         try:
@@ -173,6 +188,8 @@ async def apply_log_event(event: dict) -> None:
                 await _handle_accept(db, event)
             else:
                 await _handle_close(db, event)
+            if position is not None:
+                await _set_position_row(db, *position)
             await db.commit()
         except Exception:
             await db.rollback()
@@ -247,12 +264,7 @@ async def _load_log_position() -> tuple[int, int] | None:
 async def _save_log_position(inode: int, offset: int) -> None:
     factory = get_session_factory()
     async with factory() as db:
-        row = await db.get(SessionTrackerState, 1)
-        if row is None:
-            row = SessionTrackerState(id=1)
-            db.add(row)
-        row.log_inode = inode
-        row.log_offset = offset
+        await _set_position_row(db, inode, offset)
         await db.commit()
 
 
@@ -388,8 +400,13 @@ async def follow_sshd_log(path: str | None = None, poll_interval: float = POLL_I
                 await asyncio.sleep(0)
                 continue
             try:
-                await apply_log_event(event)
+                # Event and offset commit atomically: a committed event is
+                # never replayed, and a failed one leaves the offset behind
+                # so the retry below re-reads the same line.
+                await apply_log_event(event, position=(cur_ino, f.tell()))
                 retry_pos, retry_count = -1, 0
+                pos_dirty = False
+                continue
             except Exception:
                 # Transient failures (e.g. SQLite "database is locked") must
                 # not lose the event: rewind and retry the same line, bounded
@@ -413,11 +430,9 @@ async def follow_sshd_log(path: str | None = None, poll_interval: float = POLL_I
                     retry_count,
                 )
                 retry_pos, retry_count = -1, 0
-            # Persist only after the event was applied (or given up on) so a
-            # crash replays at most the events since the last persist, which
-            # the idempotent accept/close handlers absorb.
-            await _save_log_position_safe(cur_ino, f.tell())
-            pos_dirty = False
+                # Deliberately skipping this line: advance the offset past it.
+                await _save_log_position_safe(cur_ino, f.tell())
+                pos_dirty = False
     except asyncio.CancelledError:
         raise
     finally:

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import core
 import session_tracker
 from core import hash_password
-from models import AuditAction, AuditLog, Base, SshSession, User, UserRole
+from models import AuditAction, AuditLog, Base, SessionTrackerState, SshSession, User, UserRole
 from session_tracker import (
     _candidate_hex_addrs,
     close_stale_open_sessions,
@@ -156,6 +156,30 @@ def test_accept_is_idempotent_on_replay(monkeypatch):
                 assert len(sessions) == 1
                 audit = (await db.execute(select(AuditLog))).scalars().all()
                 assert [a.action for a in audit] == [AuditAction.SESSION_OPENED]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_event_and_position_commit_atomically(monkeypatch):
+    """A committed event always carries its offset, so replay cannot duplicate."""
+
+    async def scenario():
+        engine, factory = await _make_db()
+        _patch_factory(monkeypatch, factory)
+        try:
+            await session_tracker.apply_log_event(parse_log_line(ACCEPT_LINE), position=(7, 123))
+
+            async with factory() as db:
+                state = await db.get(SessionTrackerState, 1)
+                assert (state.log_inode, state.log_offset) == (7, 123)
+
+            # Replaying the same accept (crash before a later offset persisted)
+            # is a no-op for rows and audit alike
+            await session_tracker.apply_log_event(parse_log_line(ACCEPT_LINE), position=(7, 123))
+            async with factory() as db:
+                assert len((await db.execute(select(SshSession))).scalars().all()) == 1
         finally:
             await engine.dispose()
 
