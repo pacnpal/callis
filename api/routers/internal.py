@@ -9,8 +9,8 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core import get_session_factory, get_settings, slugify, write_audit_log
-from models import AuditAction, AuditLog, Host, SSHKey, User, user_host_assignment
+from core import get_effective_hosts, get_session_factory, get_settings, slugify, write_audit_log
+from models import AuditAction, AuditLog, SSHKey, User
 
 logger = logging.getLogger("callis")
 
@@ -164,16 +164,8 @@ async def get_keys(username: str, fp: str = Query("")):
         if not keys:
             return PlainTextResponse("", status_code=200)
 
-        # Get user's assigned hosts for permitopen enforcement
-        hosts_result = await db.execute(
-            select(Host)
-            .join(user_host_assignment)
-            .where(
-                user_host_assignment.c.user_id == user.id,
-                Host.is_active == True,
-            )
-        )
-        assigned_hosts = hosts_result.scalars().all()
+        # Effective hosts (direct + group assignments) for permitopen enforcement
+        assigned_hosts = await get_effective_hosts(db, user.id)
 
         # Build permitopen options from assigned hosts
         if assigned_hosts:
@@ -204,16 +196,8 @@ async def resolve_host(username: str, tag: str):
         if not user:
             return PlainTextResponse("", status_code=200)
 
-        # Get user's assigned active hosts
-        hosts_result = await db.execute(
-            select(Host)
-            .join(user_host_assignment)
-            .where(
-                user_host_assignment.c.user_id == user.id,
-                Host.is_active == True,
-            )
-        )
-        assigned_hosts = hosts_result.scalars().all()
+        # Effective hosts (direct + group assignments)
+        assigned_hosts = await get_effective_hosts(db, user.id)
 
         # Find all hosts whose slugified label matches the tag
         matching_hosts = [
@@ -242,16 +226,8 @@ async def list_hosts(username: str):
         if not user:
             return PlainTextResponse("", status_code=200)
 
-        # Get user's assigned active hosts
-        hosts_result = await db.execute(
-            select(Host)
-            .join(user_host_assignment)
-            .where(
-                user_host_assignment.c.user_id == user.id,
-                Host.is_active == True,
-            )
-        )
-        assigned_hosts = hosts_result.scalars().all()
+        # Effective hosts (direct + group assignments)
+        assigned_hosts = await get_effective_hosts(db, user.id)
 
         if not assigned_hosts:
             return PlainTextResponse("", status_code=200)

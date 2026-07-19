@@ -9,16 +9,17 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from core import get_engine, get_runtime_setting, get_session_factory, get_settings, limiter, load_db_settings
 from middleware import SecurityHeadersMiddleware, SessionMiddleware, TOTPGuardMiddleware
 from middleware.setup_guard import SetupGuardMiddleware
-from models import Base, User
-from routers import auth, users, hosts, audit, setup, settings as settings_router
+from models import AuditAction, Base, User
+from routers import auth, users, hosts, groups, sessions, audit, setup, settings as settings_router
 from routers import dashboard, meta
 from routers.internal import internal_app
+from session_tracker import close_stale_open_sessions, follow_sshd_log
 
 logger = logging.getLogger("callis")
 
@@ -51,7 +52,19 @@ async def lifespan(app: FastAPI):
             logger.warning("account is created. Do not expose this port until done.")
             logger.warning("=" * 60)
 
+    # SSH session tracking: close records orphaned by a previous run (unless
+    # their connection is still established), then follow the sshd log for
+    # live connect/disconnect events.
+    await close_stale_open_sessions()
+    tracker_task = asyncio.create_task(follow_sshd_log())
+
     yield
+
+    tracker_task.cancel()
+    try:
+        await tracker_task
+    except asyncio.CancelledError:
+        pass
     engine = get_engine()
     await engine.dispose()
 
@@ -100,6 +113,8 @@ app.include_router(auth.router, prefix=API_V1_PREFIX)
 app.include_router(setup.router, prefix=API_V1_PREFIX)
 app.include_router(users.router, prefix=API_V1_PREFIX)
 app.include_router(hosts.router, prefix=API_V1_PREFIX)
+app.include_router(groups.router, prefix=API_V1_PREFIX)
+app.include_router(sessions.router, prefix=API_V1_PREFIX)
 app.include_router(audit.router, prefix=API_V1_PREFIX)
 app.include_router(settings_router.router, prefix=API_V1_PREFIX)
 app.include_router(dashboard.router, prefix=API_V1_PREFIX)
@@ -205,6 +220,28 @@ async def generic_exception_handler(request: Request, exc: Exception):
 _initialized: set[str] = set()
 
 
+async def _sync_pg_audit_enum(engine) -> None:
+    """PostgreSQL only: add any missing AuditAction labels to the native enum.
+
+    Base.metadata.create_all() creates missing tables but never alters an
+    existing native enum type, so an upgraded installation would fail on the
+    first write of a newly introduced audit action. ALTER TYPE ... ADD VALUE
+    cannot run inside a transaction block, hence the AUTOCOMMIT connection.
+    No-op for SQLite.
+    """
+    if engine.dialect.name != "postgresql":
+        return
+    async with engine.connect() as conn:
+        autocommit = await conn.execution_options(isolation_level="AUTOCOMMIT")
+        for action in AuditAction:
+            # SQLAlchemy persists PEP-435 enum member NAMES (e.g.
+            # RECOVERY_CODE_USED), not .value — the labels added here must
+            # match. Names are our own identifiers (ASCII), safe to inline.
+            await autocommit.execute(
+                text(f"ALTER TYPE auditaction ADD VALUE IF NOT EXISTS '{action.name}'")
+            )
+
+
 async def _init_db():
     """Run DB initialization (table creation) — idempotent; no-op if already done."""
     if "db" in _initialized:
@@ -217,6 +254,7 @@ async def _init_db():
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _sync_pg_audit_enum(engine)
     _initialized.add("db")
 
 
