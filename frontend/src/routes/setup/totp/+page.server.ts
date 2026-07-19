@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { apiAttempt, apiFetch } from '$lib/server/api';
-import type { Session, TOTPSetup } from '$lib/types';
+import type { Enroll, TOTPSetup } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -16,7 +16,7 @@ export const load: PageServerLoad = async (event) => {
 export const actions: Actions = {
 	default: async (event) => {
 		const form = await event.request.formData();
-		const result = await apiAttempt<Session>(event, '/api/v1/setup/totp/verify', {
+		const result = await apiAttempt<Enroll>(event, '/api/v1/setup/totp/verify', {
 			method: 'POST',
 			body: { totp_code: String(form.get('totp_code') ?? '') }
 		});
@@ -24,6 +24,8 @@ export const actions: Actions = {
 			if (result.status === 409) redirect(303, '/dashboard');
 			return fail(result.status, { error: result.detail });
 		}
-		redirect(303, '/dashboard');
+		// Show the one-time recovery codes before continuing to the dashboard.
+		event.setHeaders({ 'cache-control': 'no-store' });
+		return { recoveryCodes: result.data.recovery_codes };
 	}
 };

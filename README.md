@@ -16,8 +16,10 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 - Hardened OpenSSH jump server (Ed25519 host key; Ed25519 or RSA 4096+ user keys; no passwords, no interactive shell)
 - Server-rendered web UI (SvelteKit SSR) backed by a FastAPI JSON API — works without JavaScript, no CDN dependencies
 - Per-user OS accounts with instant key revocation
-- Mandatory TOTP 2FA for all web UI users
+- Mandatory TOTP 2FA for all web UI users, with single-use recovery codes for lost devices
 - Role-based access control (admin, operator, readonly)
+- Host groups — grant access to sets of hosts as a unit
+- Live SSH session view with admin session termination
 - Full audit log of every connection attempt and admin action
 - Fail2ban sidecar for SSH brute force protection
 - Rate limiting on web UI login

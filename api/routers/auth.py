@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core import (
+    consume_recovery_code,
     create_jwt,
     decrypt_totp_secret,
     encrypt_totp_secret,
@@ -12,17 +13,20 @@ from core import (
     get_db,
     get_settings,
     hash_password,
+    issue_recovery_codes,
     limiter,
+    looks_like_recovery_code,
     totp_consume_step,
     totp_matching_step,
     totp_qr_b64,
+    unused_recovery_code_count,
     verify_password,
     verify_totp,
     write_audit_log,
 )
 from dependencies import get_current_user
 from models import AuditAction, User
-from schemas import LoginIn, SessionOut, TOTPSetupOut, TOTPVerifyIn, user_out
+from schemas import EnrollOut, LoginIn, SessionOut, TOTPSetupOut, TOTPVerifyIn, user_out
 
 router = APIRouter(prefix="/auth")
 
@@ -94,11 +98,30 @@ async def login_submit(
     if user.totp_enrolled:
         secret = decrypt_totp_secret(user.totp_secret)
         submitted_totp_code = (body.totp_code or "").strip()
-        # Match the code (±1 step, constant-time), then enforce single use so a
-        # code observed in transit cannot be replayed within its validity window.
+        # Match the TOTP code (±1 step, constant-time), then enforce single use
+        # so a code observed in transit cannot be replayed within its window.
         matched_step = totp_matching_step(secret, submitted_totp_code)
-        accepted = matched_step is not None and totp_consume_step(user.id, matched_step)
-        if not accepted:
+        totp_accepted = matched_step is not None and totp_consume_step(user.id, matched_step)
+
+        # A single-use recovery code may be entered in place of the TOTP code
+        # (lost/replaced authenticator device). Only attempted when the input
+        # has recovery-code shape, so 6-digit TOTP attempts never hit the DB.
+        used_recovery_code = False
+        if not totp_accepted and looks_like_recovery_code(submitted_totp_code):
+            used_recovery_code = await consume_recovery_code(db, user.id, submitted_totp_code)
+
+        if used_recovery_code:
+            remaining = await unused_recovery_code_count(db, user.id)
+            await write_audit_log(
+                db,
+                actor_id=user.id,
+                action=AuditAction.RECOVERY_CODE_USED,
+                target_type="user",
+                target_id=user.id,
+                source_ip=request.client.host if request.client else None,
+                detail={"target_username": user.username, "remaining_codes": remaining},
+            )
+        elif not totp_accepted:
             if not submitted_totp_code:
                 totp_failure_reason = "totp_missing"
             elif matched_step is not None:
@@ -163,7 +186,7 @@ async def totp_verify(
     body: TOTPVerifyIn,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> SessionOut:
+) -> EnrollOut:
     if user.totp_enrolled:
         raise HTTPException(status_code=409, detail="totp_already_enrolled")
 
@@ -188,7 +211,19 @@ async def totp_verify(
         source_ip=request.client.host if request.client else None,
     )
 
-    return SessionOut(user=user_out(db_user))
+    # Issue single-use recovery codes, returned exactly once.
+    codes = await issue_recovery_codes(db, db_user.id)
+    await write_audit_log(
+        db,
+        actor_id=db_user.id,
+        action=AuditAction.RECOVERY_CODES_GENERATED,
+        target_type="user",
+        target_id=db_user.id,
+        source_ip=request.client.host if request.client else None,
+        detail={"count": len(codes), "source": "totp_enrollment"},
+    )
+
+    return EnrollOut(user=user_out(db_user), recovery_codes=codes)
 
 
 @router.post("/logout")

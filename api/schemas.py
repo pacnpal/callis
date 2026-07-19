@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from core import slugify
-from models import AuditLog, Host, SSHKey, User
+from models import AuditLog, Host, HostGroup, SSHKey, SshSession, User
 
 # ---------------------------------------------------------------------------
 # Users & keys
@@ -138,6 +138,82 @@ class DeployKeyOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Host groups
+# ---------------------------------------------------------------------------
+
+
+class HostRef(BaseModel):
+    id: str
+    label: str
+
+
+class GroupRef(BaseModel):
+    id: str
+    name: str
+
+
+class GroupOut(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    created_at: datetime
+    hosts: list[HostRef] = Field(default_factory=list)
+    users: list[UserRef] = Field(default_factory=list)
+
+
+def group_out(group: HostGroup) -> GroupOut:
+    return GroupOut(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        created_at=group.created_at,
+        hosts=[HostRef(id=h.id, label=h.label) for h in group.hosts],
+        users=[UserRef(id=u.id, username=u.username) for u in group.users],
+    )
+
+
+class CreateGroupIn(BaseModel):
+    name: str
+    description: str = ""
+
+
+# ---------------------------------------------------------------------------
+# SSH sessions
+# ---------------------------------------------------------------------------
+
+
+class SshSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    username: str
+    source_ip: str
+    source_port: int
+    key_fingerprint: str | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
+    close_reason: str | None = None
+
+
+def ssh_session_out(session: SshSession) -> SshSessionOut:
+    return SshSessionOut.model_validate(session)
+
+
+class SessionsOut(BaseModel):
+    active: list[SshSessionOut]
+    recent: list[SshSessionOut]
+
+
+# ---------------------------------------------------------------------------
+# 2FA recovery codes
+# ---------------------------------------------------------------------------
+
+
+class RecoveryCodesOut(BaseModel):
+    codes: list[str]
+
+
+# ---------------------------------------------------------------------------
 # Audit
 # ---------------------------------------------------------------------------
 
@@ -190,6 +266,16 @@ class SessionOut(BaseModel):
     user: UserOut
 
 
+class EnrollOut(SessionOut):
+    """TOTP enrollment result: the session plus one-time recovery codes.
+
+    The codes are returned exactly once, at enrollment — they are stored
+    only as keyed digests server-side and can never be shown again.
+    """
+
+    recovery_codes: list[str] = Field(default_factory=list)
+
+
 class TOTPSetupOut(BaseModel):
     qr_png_b64: str
     secret: str
@@ -225,6 +311,8 @@ class UserDetailOut(BaseModel):
     user: UserOut
     keys: list[SSHKeyOut]
     assigned_hosts: list[HostOut]
+    host_groups: list[GroupRef] = Field(default_factory=list)
+    recovery_codes_remaining: int = 0
     ssh_host: str
     ssh_port: int
     roles: list[str]
@@ -233,6 +321,7 @@ class UserDetailOut(BaseModel):
 class DashboardOut(BaseModel):
     active_users: int
     active_hosts: int
+    active_sessions: int
     user_key_count: int
     recent_audit: list[AuditEntryOut]
     ssh_host: str

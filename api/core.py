@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import io
 import logging
 import os
@@ -16,7 +17,7 @@ from urllib.parse import urlparse
 
 import pyotp
 import qrcode
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, update
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -36,7 +37,16 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from models import AuditAction, AuditLog, Setting
+from models import (
+    AuditAction,
+    AuditLog,
+    Host,
+    RecoveryCode,
+    Setting,
+    host_group_hosts,
+    host_group_users,
+    user_host_assignment,
+)
 
 logger = logging.getLogger("callis")
 
@@ -482,6 +492,102 @@ def get_totp_uri(secret: str, username: str) -> str:
     return pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name="Callis")
 
 
+# ---------------------------------------------------------------------------
+# 2FA recovery codes
+# ---------------------------------------------------------------------------
+
+RECOVERY_CODE_COUNT = 10
+# Unambiguous lowercase alphabet (no 0/o/1/l/i): 10 chars ≈ 49 bits of entropy.
+_RECOVERY_CODE_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
+_RECOVERY_CODE_LENGTH = 10
+
+
+def generate_recovery_code() -> str:
+    """Generate one recovery code, formatted as xxxxx-xxxxx."""
+    raw = "".join(secrets.choice(_RECOVERY_CODE_ALPHABET) for _ in range(_RECOVERY_CODE_LENGTH))
+    return f"{raw[:5]}-{raw[5:]}"
+
+
+def normalize_recovery_code(code: str) -> str:
+    """Normalize user input: lowercase, strip whitespace and hyphens."""
+    return code.strip().lower().replace("-", "").replace(" ", "")
+
+
+def hash_recovery_code(code: str) -> str:
+    """HMAC-SHA256 digest of a normalized recovery code, keyed by SECRET_KEY.
+
+    Recovery codes are high-entropy random strings (~49 bits), so a fast
+    keyed hash is appropriate — offline brute force is infeasible without
+    the server key, and the digest column can be indexed for O(1) lookup.
+    Passwords must NOT use this; they use bcrypt.
+    """
+    secret_key = get_settings().SECRET_KEY
+    return hmac.new(
+        secret_key.encode(),
+        f"callis-recovery:{normalize_recovery_code(code)}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def looks_like_recovery_code(code: str) -> bool:
+    """True if the submitted 2FA value has recovery-code shape (vs 6-digit TOTP).
+
+    Length alone distinguishes the formats: recovery codes normalize to 10
+    characters, TOTP codes are 6 digits. All-digit inputs of length 10 must
+    still qualify — the generation alphabet contains digits, so an issued
+    code can (rarely) be entirely numeric.
+    """
+    return len(normalize_recovery_code(code)) == _RECOVERY_CODE_LENGTH
+
+
+async def issue_recovery_codes(db: AsyncSession, user_id: str) -> list[str]:
+    """Replace all of a user's recovery codes with a fresh set.
+
+    Returns the plaintext codes — the only time they are ever available.
+    Does not commit; the caller owns the transaction.
+    """
+    await db.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user_id))
+    codes = [generate_recovery_code() for _ in range(RECOVERY_CODE_COUNT)]
+    for code in codes:
+        db.add(RecoveryCode(user_id=user_id, code_digest=hash_recovery_code(code)))
+    await db.flush()
+    return codes
+
+
+async def consume_recovery_code(db: AsyncSession, user_id: str, submitted: str) -> bool:
+    """Mark a matching unused recovery code as used. Returns True on success.
+
+    Single-use is enforced atomically: the conditional UPDATE re-evaluates
+    ``used_at IS NULL`` at commit visibility, so two concurrent logins with
+    the same code cannot both succeed on PostgreSQL (SQLite is single-writer
+    and safe either way).
+
+    Does not commit; the caller owns the transaction.
+    """
+    digest = hash_recovery_code(submitted)
+    result = await db.execute(
+        update(RecoveryCode)
+        .where(
+            RecoveryCode.user_id == user_id,
+            RecoveryCode.code_digest == digest,
+            RecoveryCode.used_at.is_(None),
+        )
+        .values(used_at=datetime.now(timezone.utc))
+    )
+    return result.rowcount == 1
+
+
+async def unused_recovery_code_count(db: AsyncSession, user_id: str) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(RecoveryCode)
+        .where(RecoveryCode.user_id == user_id, RecoveryCode.used_at.is_(None))
+    )
+    return result.scalar()
+
+
+
+
 def totp_qr_b64(secret: str, username: str) -> str:
     """Render the TOTP provisioning URI as a base64-encoded PNG QR code."""
     uri = get_totp_uri(secret, username)
@@ -809,6 +915,39 @@ def get_server_deploy_public_key() -> str:
         logger.info("Generated Callis server deploy key and saved to %s", priv_path)
         _deploy_public_key_cache = public_key_text
         return public_key_text
+
+
+# ---------------------------------------------------------------------------
+# Effective host access (direct assignments ∪ group memberships)
+# ---------------------------------------------------------------------------
+
+async def get_effective_hosts(db: AsyncSession, user_id: str) -> list[Host]:
+    """Active hosts a user may reach: direct assignments plus host groups.
+
+    This is the single source of truth for host access — used by the
+    internal API (permitopen construction, tag resolution, and host
+    listing) and the web UI, so they can never disagree.
+    """
+    direct_ids = select(user_host_assignment.c.host_id).where(
+        user_host_assignment.c.user_id == user_id
+    )
+    group_ids = (
+        select(host_group_hosts.c.host_id)
+        .join(
+            host_group_users,
+            host_group_users.c.group_id == host_group_hosts.c.group_id,
+        )
+        .where(host_group_users.c.user_id == user_id)
+    )
+    result = await db.execute(
+        select(Host)
+        .where(
+            Host.is_active == True,  # noqa: E712
+            Host.id.in_(direct_ids.union(group_ids)),
+        )
+        .order_by(Host.label)
+    )
+    return result.scalars().all()
 
 
 # ---------------------------------------------------------------------------

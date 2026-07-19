@@ -39,14 +39,13 @@
 			name="totp_code"
 			autocomplete="one-time-code"
 			placeholder="6-digit code"
-			inputmode="numeric"
-			pattern="[0-9]{'{'}6{'}'}"
-			maxlength="6"
+			pattern="[0-9]{'{'}6{'}'}|[A-Za-z0-9 \-]{'{'}10,14{'}'}"
+			maxlength="14"
 			aria-describedby="totp_code_help"
 		/>
 		<p id="totp_code_help" class="helper-text">
-			Enter the code from your authenticator app. Leave blank on your first login &mdash; you
-			will set up two-factor authentication next.
+			Enter the code from your authenticator app, or a recovery code if you lost your device.
+			Leave blank on your first login &mdash; you will set up two-factor authentication next.
 		</p>
 
 		<button type="submit">Sign In</button>

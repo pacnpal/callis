@@ -14,6 +14,7 @@ from core import (
     get_runtime_setting,
     get_session_factory,
     hash_password,
+    issue_recovery_codes,
     limiter,
     totp_qr_b64,
     verify_totp,
@@ -22,7 +23,7 @@ from core import (
 from models import AuditAction, User, UserRole
 from dependencies import get_current_user
 from routers.auth import set_session_cookie
-from schemas import SessionOut, SetupIn, TOTPSetupOut, TOTPVerifyIn, user_out
+from schemas import EnrollOut, SessionOut, SetupIn, TOTPSetupOut, TOTPVerifyIn, user_out
 
 router = APIRouter(prefix="/setup")
 
@@ -185,7 +186,7 @@ async def setup_totp_verify(
     request: Request,
     body: TOTPVerifyIn,
     user: User = Depends(get_current_user),
-) -> SessionOut:
+) -> EnrollOut:
     if await _is_fully_setup():
         raise HTTPException(status_code=404)
 
@@ -216,6 +217,18 @@ async def setup_totp_verify(
             source_ip=request.client.host if request.client else None,
             detail={"source": "setup_wizard"},
         )
+
+        # Issue single-use recovery codes, returned exactly once.
+        codes = await issue_recovery_codes(db, user.id)
+        await write_audit_log(
+            db,
+            actor_id=user.id,
+            action=AuditAction.RECOVERY_CODES_GENERATED,
+            target_type="user",
+            target_id=user.id,
+            source_ip=request.client.host if request.client else None,
+            detail={"count": len(codes), "source": "setup_wizard"},
+        )
         await db.commit()
 
-    return SessionOut(user=user_out(db_user))
+    return EnrollOut(user=user_out(db_user), recovery_codes=codes)

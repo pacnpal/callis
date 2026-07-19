@@ -29,6 +29,7 @@
 				{/if}
 				<li><a href="/users/{user.id}">My Profile</a></li>
 				<li><a href="/hosts">Hosts</a></li>
+				<li><a href="/sessions">Sessions</a></li>
 				{#if user.role === 'admin'}
 					<li><a href="/audit">Audit Log</a></li>
 					<li><a href="/settings">Settings</a></li>
