@@ -69,7 +69,10 @@ export async function apiFetch(
 		method: init.method ?? 'GET',
 		headers,
 		body,
-		redirect: 'manual'
+		redirect: 'manual',
+		// The API lives on loopback and answers in milliseconds; bound the
+		// request so a stalled backend fails fast instead of hanging the page.
+		signal: AbortSignal.timeout(30_000)
 	});
 
 	// Replay session cookie mutations (refresh/login/logout) onto our response.
@@ -115,7 +118,7 @@ export async function apiJson<T>(
 	if (response.status === 409 && detail === 'setup_required') {
 		redirect(303, '/setup');
 	}
-	error(response.status as never, { message: detail });
+	error(response.status, { message: detail });
 }
 
 /** For form actions: returns either parsed data or a structured failure the

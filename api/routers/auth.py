@@ -70,6 +70,9 @@ async def login_submit(
             source_ip=request.client.host if request.client else None,
             detail={"username": username, "reason": "user_not_found"},
         )
+        # Commit before raising: the HTTPException sends this session through
+        # get_db()'s rollback path, which would otherwise drop the audit row.
+        await db.commit()
         raise error
 
     if not verify_password(body.password, user.hashed_password):
@@ -82,6 +85,7 @@ async def login_submit(
             source_ip=request.client.host if request.client else None,
             detail={"reason": "wrong_password", "target_username": user.username},
         )
+        await db.commit()
         raise error
 
     # If TOTP enrolled, verify code (always run decrypt+verify for constant-time)
@@ -100,6 +104,7 @@ async def login_submit(
                 source_ip=request.client.host if request.client else None,
                 detail={"reason": totp_failure_reason, "target_username": user.username},
             )
+            await db.commit()
             raise error
 
     # Success

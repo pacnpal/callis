@@ -5,10 +5,12 @@ banner, instance name, footer version) or derived at request time
 (setup-needed redirect), so none of it expands the unauthenticated surface.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from core import get_app_version, get_runtime_setting, get_session_factory, get_settings, get_ssh_host
+from core import get_app_version, get_db, get_runtime_setting, get_settings, get_ssh_host
+from middleware.setup_guard import SetupGuardMiddleware
 from models import User
 from schemas import MetaOut
 
@@ -16,9 +18,12 @@ router = APIRouter()
 
 
 @router.get("/meta")
-async def meta() -> MetaOut:
-    factory = get_session_factory()
-    async with factory() as db:
+async def meta(db: AsyncSession = Depends(get_db)) -> MetaOut:
+    # This endpoint runs on every SSR page load; reuse SetupGuardMiddleware's
+    # process-wide "setup complete" cache to skip the COUNT once it flips.
+    if SetupGuardMiddleware._setup_complete:
+        setup_needed = False
+    else:
         result = await db.execute(select(func.count()).select_from(User))
         setup_needed = result.scalar() == 0
 

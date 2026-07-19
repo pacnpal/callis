@@ -81,6 +81,11 @@ app.add_middleware(SecurityHeadersMiddleware)
 _settings = get_settings()
 _raw = _settings.TRUSTED_PROXIES.strip()
 if _settings.HTTPS_ENABLED and _raw == "*":
+    logger.warning(
+        "HTTPS_ENABLED is set with TRUSTED_PROXIES=\"*\": forwarded headers from "
+        "any client are trusted. Narrow TRUSTED_PROXIES to your proxy's IP/CIDR "
+        "so audit-log source IPs and rate limiting cannot be spoofed."
+    )
     _trusted_hosts: str | list[str] = "*"
 else:
     _trusted_hosts = ["127.0.0.1", "::1"]
@@ -181,7 +186,9 @@ async def callis_script():
 # Global exception handlers — JSON only; the SSR frontend owns error pages.
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    return JSONResponse(
+        {"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers
+    )
 
 
 @app.exception_handler(Exception)

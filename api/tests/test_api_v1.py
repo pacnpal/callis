@@ -120,12 +120,19 @@ async def test_full_setup_login_and_crud_flow(client):
     )
     assert r.status_code == 200, r.text
 
-    # Wrong password is rejected and audited
+    # Wrong password is rejected and the failure is audited despite the 401
+    # (failure audit rows must survive the exception path's rollback)
     r = await client.post(
         "/api/v1/auth/login",
         json={"username": "admin", "password": "wrong-password", "totp_code": ""},
     )
     assert r.status_code == 401
+    r = await client.get("/api/v1/audit", params={"action": "login_failure"})
+    assert r.status_code == 200
+    assert any(
+        e["detail"] and e["detail"].get("reason") == "wrong_password"
+        for e in r.json()["entries"]
+    )
 
     # Create a user
     r = await client.post(

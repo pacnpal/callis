@@ -4,7 +4,7 @@
 // removes the explicit theme so Pico CSS follows the OS/browser preference.
 (function () {
   try {
-    var t = localStorage.getItem("callis-theme");
+    const t = localStorage.getItem("callis-theme");
     if (t === "light" || t === "dark") {
       document.documentElement.setAttribute("data-theme", t);
     } else {

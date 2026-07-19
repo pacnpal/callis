@@ -9,7 +9,7 @@ const config = {
 		// Kit's built-in check compares the full origin including protocol, but
 		// adapter-node assumes https when ORIGIN is unset — which breaks the
 		// zero-config plain-HTTP LAN deployment. hooks.server.ts implements an
-		// equivalent host-based origin check instead (see csrfGuard), on top of
+		// equivalent host-based origin check instead (see csrfForbidden), on top of
 		// the SameSite=Strict session cookie.
 		csrf: { checkOrigin: false },
 		// Strict CSP: SvelteKit hashes its own inline hydration scripts; all

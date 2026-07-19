@@ -202,7 +202,7 @@
 			</div>
 			<p class="text-small text-muted">
 				<strong>Label:</strong> {generated.key.label} &mdash; <strong>Type:</strong>
-				<code>ssh-ed25519</code> &mdash; <strong>Fingerprint:</strong>
+				<code>{generated.key.key_type}</code> &mdash; <strong>Fingerprint:</strong>
 				<code>{generated.key.fingerprint}</code>
 			</p>
 			<div class="ssh-config-actions">
