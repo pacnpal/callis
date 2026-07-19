@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import pyotp
 import qrcode
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -43,6 +43,7 @@ from models import (
     Host,
     RecoveryCode,
     Setting,
+    User,
     host_group_hosts,
     host_group_users,
     user_host_assignment,
@@ -321,7 +322,7 @@ def _get_session_idle_timeout_seconds() -> int:
     return get_settings().SESSION_IDLE_TIMEOUT
 
 
-def create_jwt(user_id: str) -> str:
+def create_jwt(user_id: str, session_epoch: int = 0) -> str:
     settings = get_settings()
     issued_at = datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(seconds=_get_session_max_lifetime_seconds())
@@ -330,6 +331,11 @@ def create_jwt(user_id: str) -> str:
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
         "last_activity": issued_at.isoformat(),
+        # Session-revocation epoch: the SessionMiddleware rejects the token if
+        # this no longer matches the user's current session_epoch in the DB,
+        # so bumping the user's epoch (e.g. on logout) invalidates all their
+        # outstanding tokens server-side despite the stateless JWT design.
+        "epoch": int(session_epoch),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
@@ -435,6 +441,51 @@ def verify_totp(secret: str, code: str) -> bool:
         matched |= secrets.compare_digest(expected, normalized_code)
 
     return valid_format and matched
+
+
+def totp_matching_step(secret: str, code: str) -> int | None:
+    """Return the absolute time-step index a valid TOTP code matches, else None.
+
+    Mirrors verify_totp's ±1 skew tolerance and constant-time comparison, but
+    returns the matched step index so callers can enforce single-use (replay
+    protection) by rejecting a step that was already consumed.
+    """
+    submitted = code.strip()
+    valid_format = submitted.isdigit() and len(submitted) == 6
+    normalized_code = submitted if valid_format else "000000"
+
+    totp = pyotp.TOTP(secret)
+    now = datetime.now(timezone.utc).timestamp()
+    base_step = int(now // totp.interval)
+    matched_step: int | None = None
+    for step_offset in (-1, 0, 1):
+        expected = totp.at(now + (step_offset * totp.interval))
+        if secrets.compare_digest(expected, normalized_code):
+            matched_step = base_step + step_offset
+
+    return matched_step if valid_format else None
+
+
+async def consume_totp_step(db: AsyncSession, user_id: str, step: int) -> bool:
+    """Atomically claim a TOTP time-step for single-use (durable replay guard).
+
+    Advances ``users.last_totp_step`` to *step* only if it is currently unset or
+    below *step*, in a single UPDATE. Returns True if this call won the claim
+    (accept), or False if the step was already consumed (replay — reject).
+
+    Because the guard lives in the row, single-use holds across process
+    restarts and multiple API workers: concurrent claims of the same step
+    serialize on the row, and only the first UPDATE matches the WHERE clause.
+    """
+    result = await db.execute(
+        update(User)
+        .where(
+            User.id == user_id,
+            or_(User.last_totp_step.is_(None), User.last_totp_step < step),
+        )
+        .values(last_totp_step=step)
+    )
+    return result.rowcount == 1
 
 
 def get_totp_uri(secret: str, username: str) -> str:

@@ -23,7 +23,7 @@ async def audit_log(
     date_from: str = Query(None),
     date_to: str = Query(None),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role("readonly")),
+    user: User = Depends(require_role("admin")),
 ) -> AuditPageOut:
     query = select(AuditLog).options(selectinload(AuditLog.actor))
 

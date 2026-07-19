@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import ipaddress
 import logging
 import shlex
 from contextlib import asynccontextmanager
@@ -86,26 +87,43 @@ app.add_middleware(TOTPGuardMiddleware)
 app.add_middleware(SetupGuardMiddleware)
 app.add_middleware(SessionMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
-# The SvelteKit SSR server always fronts this app from loopback and forwards
-# the real client address in X-Forwarded-For, so loopback is always trusted.
-# When HTTPS_ENABLED=true the deployment sits behind an additional TLS reverse
-# proxy; TRUSTED_PROXIES (default "*") can be narrowed to specific IPs/CIDRs so
-# only known proxies can extend the forwarding chain, protecting audit-log
-# source IPs from being spoofed by direct clients.
-_settings = get_settings()
-_raw = _settings.TRUSTED_PROXIES.strip()
-if _settings.HTTPS_ENABLED and _raw == "*":
-    logger.warning(
-        "HTTPS_ENABLED is set with TRUSTED_PROXIES=\"*\": forwarded headers from "
-        "any client are trusted. Narrow TRUSTED_PROXIES to your proxy's IP/CIDR "
-        "so audit-log source IPs and rate limiting cannot be spoofed."
-    )
-    _trusted_hosts: str | list[str] = "*"
-else:
-    _trusted_hosts = ["127.0.0.1", "::1"]
-    if _settings.HTTPS_ENABLED:
-        _trusted_hosts += [h.strip() for h in _raw.split(",") if h.strip()]
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_hosts)
+def _resolve_trusted_hosts(settings) -> list[str]:
+    """Resolve the proxy allow-list for ProxyHeadersMiddleware.
+
+    The SvelteKit SSR server always fronts this app from loopback and forwards
+    the real client address in X-Forwarded-For, so loopback is always trusted.
+    When HTTPS_ENABLED=true the deployment sits behind an additional TLS reverse
+    proxy; TRUSTED_PROXIES must name that proxy's IP/CIDR(s) so only it can
+    extend the forwarding chain. Trusting "*" — or a catch-all network like
+    0.0.0.0/0 or ::/0 — would let ANY client spoof X-Forwarded-For, forging
+    audit-log source IPs and bypassing the per-IP login rate limiter, so we fail
+    closed on a missing/wildcard/catch-all allow-list rather than fall open.
+    """
+    loopback = ["127.0.0.1", "::1"]
+    if not settings.HTTPS_ENABLED:
+        # LAN/HTTP mode: only the loopback SSR server is a trusted hop.
+        return loopback
+
+    tokens = [h.strip() for h in settings.TRUSTED_PROXIES.split(",") if h.strip()]
+
+    def _is_catch_all(token: str) -> bool:
+        try:
+            return ipaddress.ip_network(token, strict=False).prefixlen == 0
+        except ValueError:
+            return False
+
+    if not tokens or "*" in tokens or any(_is_catch_all(t) for t in tokens):
+        raise RuntimeError(
+            'HTTPS_ENABLED=true requires TRUSTED_PROXIES to name your reverse '
+            "proxy's IP address(es) or CIDR(s), comma-separated. Trusting \"*\" "
+            "or a catch-all network (0.0.0.0/0, ::/0) lets any client spoof "
+            "X-Forwarded-For, forging audit source IPs and bypassing login rate "
+            "limiting. Set TRUSTED_PROXIES to your proxy and restart."
+        )
+    return loopback + tokens
+
+
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_resolve_trusted_hosts(get_settings()))
 
 # Routers — the JSON API is versioned under /api/v1 and is the single source
 # of truth for every value the frontend renders.
@@ -255,8 +273,49 @@ async def _init_db():
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _apply_light_migrations(conn)
     await _sync_pg_audit_enum(engine)
     _initialized.add("db")
+
+
+# Columns added to `users` after the table's original schema. Each entry is the
+# column name plus the type/constraint clause for the ALTER. create_all() only
+# creates missing tables, never alters existing ones, so these bridge upgrades
+# over an existing database. Keep additive and backward-compatible.
+_USER_COLUMN_MIGRATIONS = (
+    ("session_epoch", "INTEGER NOT NULL DEFAULT 0"),
+    ("last_totp_step", "BIGINT"),
+)
+
+
+async def _apply_light_migrations(conn) -> None:
+    """Idempotently add newer `users` columns; safe under concurrent startup.
+
+    Callis has no migration framework. On PostgreSQL we use ADD COLUMN IF NOT
+    EXISTS so two API processes starting at once cannot duplicate-column-crash;
+    on SQLite (single-writer, single-container by default) the inspect guard is
+    sufficient since it has no IF NOT EXISTS for ADD COLUMN.
+    """
+    from sqlalchemy import inspect as _sa_inspect
+
+    def _user_columns(sync_conn):
+        return {c["name"] for c in _sa_inspect(sync_conn).get_columns("users")}
+
+    existing = await conn.run_sync(_user_columns)
+    is_postgres = conn.dialect.name == "postgresql"
+
+    for column, type_clause in _USER_COLUMN_MIGRATIONS:
+        if column in existing:
+            continue
+        logger.info("Migrating: adding users.%s column", column)
+        if is_postgres:
+            await conn.exec_driver_sql(
+                f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {column} {type_clause}"
+            )
+        else:
+            await conn.exec_driver_sql(
+                f"ALTER TABLE users ADD COLUMN {column} {type_clause}"
+            )
 
 
 async def run_servers():

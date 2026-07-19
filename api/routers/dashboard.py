@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from core import get_db, get_settings, get_ssh_host
 from dependencies import require_totp_complete
-from models import AuditLog, Host, SSHKey, SshSession, User
+from models import AuditLog, Host, SSHKey, SshSession, User, UserRole
 from schemas import DashboardOut, audit_entry_out
 
 router = APIRouter()
@@ -41,14 +41,18 @@ async def dashboard(
     )
     active_sessions = active_sessions_result.scalar()
 
-    # Recent audit (last 10)
-    audit_result = await db.execute(
-        select(AuditLog)
-        .options(selectinload(AuditLog.actor))
-        .order_by(AuditLog.timestamp.desc())
-        .limit(10)
-    )
-    recent_audit = audit_result.scalars().all()
+    # Recent audit (last 10) — admin-only, matching the audit log's access
+    # level. Non-admins get an empty feed (the dashboard hides the section).
+    if user.role == UserRole.admin:
+        audit_result = await db.execute(
+            select(AuditLog)
+            .options(selectinload(AuditLog.actor))
+            .order_by(AuditLog.timestamp.desc())
+            .limit(10)
+        )
+        recent_audit = audit_result.scalars().all()
+    else:
+        recent_audit = []
 
     return DashboardOut(
         active_users=active_users,

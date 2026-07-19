@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from core import get_db, write_audit_log
-from dependencies import require_role, require_totp_complete
+from dependencies import require_role
 from models import AuditAction, Host, HostGroup, User
 from schemas import CreateGroupIn, GroupOut, group_out
 
@@ -42,8 +42,11 @@ async def _group_or_404(db: AsyncSession, group_id: str) -> HostGroup:
 @router.get("")
 async def group_list(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_totp_complete),
+    user: User = Depends(require_role("admin")),
 ) -> list[GroupOut]:
+    # Admin-only: group_out exposes every group's hosts and member usernames —
+    # the same access map that must not leak to low-privilege users. Non-admins
+    # get their effective host access from GET /hosts, which is already scoped.
     result = await db.execute(
         select(HostGroup)
         .options(selectinload(HostGroup.hosts), selectinload(HostGroup.users))

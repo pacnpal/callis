@@ -6,9 +6,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_server_deploy_public_key, slugify, write_audit_log
+from core import (
+    get_db,
+    get_effective_hosts,
+    get_server_deploy_public_key,
+    slugify,
+    write_audit_log,
+)
 from dependencies import require_role, require_totp_complete
-from models import AuditAction, Host, User
+from models import AuditAction, Host, User, UserRole
 from schemas import CreateHostIn, DeployKeyOut, HostOut, host_out
 
 # Hostnames/IPv4 only; IPv6 literals (with colons) not yet supported
@@ -36,10 +42,38 @@ async def host_list(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_totp_complete),
 ) -> list[HostOut]:
-    result = await db.execute(
-        select(Host).options(selectinload(Host.assigned_users)).order_by(Host.created_at.desc())
-    )
-    return [host_out(h) for h in result.scalars().all()]
+    # Admins manage the whole fleet and need the full inventory plus the
+    # user->host assignment map. Non-admins are shown only the hosts they can
+    # actually reach, with other users' assignments stripped — the internal SSH
+    # endpoint already filters this way; the web view must not leak the entire
+    # network topology and access map to a low-privilege account.
+    if user.role == UserRole.admin:
+        result = await db.execute(
+            select(Host)
+            .options(selectinload(Host.assigned_users))
+            .order_by(Host.created_at.desc())
+        )
+        return [host_out(h) for h in result.scalars().all()]
+
+    # Effective access = direct assignments ∪ host-group memberships (the same
+    # source of truth the SSH internal API uses), so a user assigned only via a
+    # group still sees their hosts. Build HostOut without the assignment map — a
+    # non-admin must not learn who else can reach a host, only that they can.
+    effective_hosts = await get_effective_hosts(db, user.id)
+    return [
+        HostOut(
+            id=h.id,
+            label=h.label,
+            alias=slugify(h.label),
+            hostname=h.hostname,
+            port=h.port,
+            description=h.description,
+            is_active=h.is_active,
+            created_at=h.created_at,
+            assigned_users=[],
+        )
+        for h in effective_hosts
+    ]
 
 
 @router.get("/deploy-key")
