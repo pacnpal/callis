@@ -6,9 +6,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core import get_db, get_server_deploy_public_key, slugify, write_audit_log
+from core import (
+    get_db,
+    get_effective_hosts,
+    get_server_deploy_public_key,
+    slugify,
+    write_audit_log,
+)
 from dependencies import require_role, require_totp_complete
-from models import AuditAction, Host, User, UserRole, user_host_assignment
+from models import AuditAction, Host, User, UserRole
 from schemas import CreateHostIn, DeployKeyOut, HostOut, host_out
 
 # Hostnames/IPv4 only; IPv6 literals (with colons) not yet supported
@@ -49,21 +55,24 @@ async def host_list(
         )
         return [host_out(h) for h in result.scalars().all()]
 
-    result = await db.execute(
-        select(Host)
-        .options(selectinload(Host.assigned_users))
-        .join(user_host_assignment)
-        .where(
-            user_host_assignment.c.user_id == user.id,
-            Host.is_active == True,
-        )
-        .order_by(Host.created_at.desc())
-    )
-    # Strip the assignment map — a non-admin must not learn who else can reach
-    # a host, only that they themselves can.
+    # Effective access = direct assignments ∪ host-group memberships (the same
+    # source of truth the SSH internal API uses), so a user assigned only via a
+    # group still sees their hosts. Build HostOut without the assignment map — a
+    # non-admin must not learn who else can reach a host, only that they can.
+    effective_hosts = await get_effective_hosts(db, user.id)
     return [
-        host_out(h).model_copy(update={"assigned_users": []})
-        for h in result.scalars().all()
+        HostOut(
+            id=h.id,
+            label=h.label,
+            alias=slugify(h.label),
+            hostname=h.hostname,
+            port=h.port,
+            description=h.description,
+            is_active=h.is_active,
+            created_at=h.created_at,
+            assigned_users=[],
+        )
+        for h in effective_hosts
     ]
 
 

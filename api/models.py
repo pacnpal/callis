@@ -126,6 +126,10 @@ class User(Base):
     # Bumped to invalidate all of this user's outstanding session JWTs (which
     # embed the epoch at issue time) — e.g. on logout. See core.create_jwt.
     session_epoch = Column(Integer, default=0, server_default="0", nullable=False)
+    # Highest TOTP time-step consumed at login. An atomic compare-and-set on
+    # this column enforces single-use of a TOTP code across workers and
+    # restarts (durable replay protection). See core.consume_totp_step.
+    last_totp_step = Column(BigInteger, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 

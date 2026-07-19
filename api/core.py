@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import pyotp
 import qrcode
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -43,6 +43,7 @@ from models import (
     Host,
     RecoveryCode,
     Setting,
+    User,
     host_group_hosts,
     host_group_users,
     user_host_assignment,
@@ -442,15 +443,6 @@ def verify_totp(secret: str, code: str) -> bool:
     return valid_format and matched
 
 
-# TOTP replay protection: remember the last consumed time-step per user so a
-# code observed in transit cannot be replayed within its ~90s validity window.
-# This is a process-local cache (single-worker is the default Callis topology);
-# in a multi-worker deployment each worker guards its own accepted codes, which
-# still narrows — but does not fully close — the replay window.
-_totp_last_step: dict[str, int] = {}
-_totp_replay_lock = threading.Lock()
-
-
 def totp_matching_step(secret: str, code: str) -> int | None:
     """Return the absolute time-step index a valid TOTP code matches, else None.
 
@@ -474,18 +466,26 @@ def totp_matching_step(secret: str, code: str) -> int | None:
     return matched_step if valid_format else None
 
 
-def totp_consume_step(user_id: str, step: int) -> bool:
-    """Record a consumed TOTP step for *user_id*.
+async def consume_totp_step(db: AsyncSession, user_id: str, step: int) -> bool:
+    """Atomically claim a TOTP time-step for single-use (durable replay guard).
 
-    Returns True if the step is newly consumed (accept), or False if a step at
-    or before it was already used for this user (replay — reject).
+    Advances ``users.last_totp_step`` to *step* only if it is currently unset or
+    below *step*, in a single UPDATE. Returns True if this call won the claim
+    (accept), or False if the step was already consumed (replay — reject).
+
+    Because the guard lives in the row, single-use holds across process
+    restarts and multiple API workers: concurrent claims of the same step
+    serialize on the row, and only the first UPDATE matches the WHERE clause.
     """
-    with _totp_replay_lock:
-        last = _totp_last_step.get(user_id)
-        if last is not None and step <= last:
-            return False
-        _totp_last_step[user_id] = step
-        return True
+    result = await db.execute(
+        update(User)
+        .where(
+            User.id == user_id,
+            or_(User.last_totp_step.is_(None), User.last_totp_step < step),
+        )
+        .values(last_totp_step=step)
+    )
+    return result.rowcount == 1
 
 
 def get_totp_uri(secret: str, username: str) -> str:

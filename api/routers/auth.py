@@ -14,9 +14,9 @@ from core import (
     get_settings,
     hash_password,
     issue_recovery_codes,
+    consume_totp_step,
     limiter,
     looks_like_recovery_code,
-    totp_consume_step,
     totp_matching_step,
     totp_qr_b64,
     unused_recovery_code_count,
@@ -101,7 +101,9 @@ async def login_submit(
         # Match the TOTP code (±1 step, constant-time), then enforce single use
         # so a code observed in transit cannot be replayed within its window.
         matched_step = totp_matching_step(secret, submitted_totp_code)
-        totp_accepted = matched_step is not None and totp_consume_step(user.id, matched_step)
+        totp_accepted = matched_step is not None and await consume_totp_step(
+            db, user.id, matched_step
+        )
 
         # A single-use recovery code may be entered in place of the TOTP code
         # (lost/replaced authenticator device). Only attempted when the input

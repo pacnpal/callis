@@ -9,20 +9,23 @@ interface DeployKey {
 
 export const load: PageServerLoad = async (event) => {
 	const { user } = await event.parent();
-	const [hosts, groups] = await Promise.all([
-		apiJson<Host[]>(event, '/api/v1/hosts'),
-		apiJson<Group[]>(event, '/api/v1/groups')
-	]);
+	const hosts = await apiJson<Host[]>(event, '/api/v1/hosts');
 
-	// Admin-only extras: assignable users + the server deploy key. Fetched
-	// concurrently; non-admins never trigger these requests.
+	// Admin-only extras: host groups (their host/member map), assignable users,
+	// and the server deploy key. Fetched only for admins; non-admins never
+	// trigger these requests and the groups access map never leaves the server.
+	let groups: Group[] = [];
 	let allUsers: { id: string; username: string }[] = [];
 	let deployKey = '';
 	if (user?.role === 'admin') {
-		const [usersResponse, keyResponse] = await Promise.all([
+		const [groupsResponse, usersResponse, keyResponse] = await Promise.all([
+			apiFetch(event, '/api/v1/groups'),
 			apiFetch(event, '/api/v1/users'),
 			apiFetch(event, '/api/v1/hosts/deploy-key')
 		]);
+		if (groupsResponse.ok) {
+			groups = (await groupsResponse.json()) as Group[];
+		}
 		if (usersResponse.ok) {
 			const users = (await usersResponse.json()) as UserListItem[];
 			allUsers = users

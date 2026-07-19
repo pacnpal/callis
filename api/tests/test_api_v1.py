@@ -575,6 +575,50 @@ async def test_host_groups_flow(client):
 
 
 @pytest.mark.asyncio
+async def test_group_hosts_visible_to_member_but_groups_admin_only(client):
+    await complete_setup(client)
+
+    # Admin builds a group containing a host and adds a readonly user to it.
+    host_id = (
+        await client.post("/api/v1/hosts", json={"label": "Grp Web", "hostname": "grp.internal"})
+    ).json()["id"]
+    group_id = (await client.post("/api/v1/groups", json={"name": "team"})).json()["id"]
+    assert (await client.post(f"/api/v1/groups/{group_id}/hosts/{host_id}")).status_code == 200
+    dave_id = (
+        await client.post(
+            "/api/v1/users",
+            json={"username": "dave", "password": USER_PASSWORD, "role": "readonly"},
+        )
+    ).json()["id"]
+    assert (await client.post(f"/api/v1/groups/{group_id}/users/{dave_id}")).status_code == 200
+
+    dave = AsyncClient(transport=ASGITransport(app=main.app), base_url="http://testserver")
+    async with dave:
+        assert (
+            await dave.post(
+                "/api/v1/auth/login",
+                json={"username": "dave", "password": USER_PASSWORD, "totp_code": ""},
+            )
+        ).status_code == 200
+        secret = (await dave.get("/api/v1/auth/totp/setup")).json()["secret"]
+        assert (
+            await dave.post(
+                "/api/v1/auth/totp/verify", json={"totp_code": pyotp.TOTP(secret).now()}
+            )
+        ).status_code == 200
+
+        # P1: a group-only assignment still surfaces the host in the scoped
+        # list, with the assignment map stripped.
+        hosts = (await dave.get("/api/v1/hosts")).json()
+        assert [h["alias"] for h in hosts] == ["grp-web"]
+        assert hosts[0]["assigned_users"] == []
+
+        # P1: the groups endpoint (host + member map) is admin-only.
+        assert (await dave.get("/api/v1/groups")).status_code == 403
+        assert (await client.get("/api/v1/groups")).status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_sessions_endpoints(client):
     from models import SshSession
 

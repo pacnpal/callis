@@ -278,13 +278,23 @@ async def _init_db():
     _initialized.add("db")
 
 
-async def _apply_light_migrations(conn) -> None:
-    """Add columns introduced after a table was first created.
+# Columns added to `users` after the table's original schema. Each entry is the
+# column name plus the type/constraint clause for the ALTER. create_all() only
+# creates missing tables, never alters existing ones, so these bridge upgrades
+# over an existing database. Keep additive and backward-compatible.
+_USER_COLUMN_MIGRATIONS = (
+    ("session_epoch", "INTEGER NOT NULL DEFAULT 0"),
+    ("last_totp_step", "BIGINT"),
+)
 
-    Callis has no migration framework; create_all only creates missing tables,
-    never alters existing ones. This idempotently adds newer columns so an
-    upgrade over an existing database picks them up. Works on SQLite and
-    PostgreSQL.
+
+async def _apply_light_migrations(conn) -> None:
+    """Idempotently add newer `users` columns; safe under concurrent startup.
+
+    Callis has no migration framework. On PostgreSQL we use ADD COLUMN IF NOT
+    EXISTS so two API processes starting at once cannot duplicate-column-crash;
+    on SQLite (single-writer, single-container by default) the inspect guard is
+    sufficient since it has no IF NOT EXISTS for ADD COLUMN.
     """
     from sqlalchemy import inspect as _sa_inspect
 
@@ -292,11 +302,20 @@ async def _apply_light_migrations(conn) -> None:
         return {c["name"] for c in _sa_inspect(sync_conn).get_columns("users")}
 
     existing = await conn.run_sync(_user_columns)
-    if "session_epoch" not in existing:
-        logger.info("Migrating: adding users.session_epoch column")
-        await conn.exec_driver_sql(
-            "ALTER TABLE users ADD COLUMN session_epoch INTEGER NOT NULL DEFAULT 0"
-        )
+    is_postgres = conn.dialect.name == "postgresql"
+
+    for column, type_clause in _USER_COLUMN_MIGRATIONS:
+        if column in existing:
+            continue
+        logger.info("Migrating: adding users.%s column", column)
+        if is_postgres:
+            await conn.exec_driver_sql(
+                f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {column} {type_clause}"
+            )
+        else:
+            await conn.exec_driver_sql(
+                f"ALTER TABLE users ADD COLUMN {column} {type_clause}"
+            )
 
 
 async def run_servers():
