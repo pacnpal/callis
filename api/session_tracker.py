@@ -97,7 +97,7 @@ async def _handle_accept(db, event: dict) -> None:
         return
 
     result = await db.execute(
-        select(User).where(User.username == event["username"], User.is_active == True)
+        select(User).where(User.username == event["username"], User.is_active == True)  # noqa: E712
     )
     user = result.scalar_one_or_none()
 

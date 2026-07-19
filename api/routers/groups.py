@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -67,7 +68,13 @@ async def create_group(
 
     group = HostGroup(name=name, description=body.description)
     db.add(group)
-    await db.flush()
+    try:
+        # The pre-check above narrows the window, but HostGroup.name is unique
+        # and a concurrent insert can still lose the race here.
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="A group with this name already exists")
 
     await write_audit_log(
         db,

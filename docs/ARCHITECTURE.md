@@ -94,7 +94,8 @@ The application is split across two listeners:
 The api process also runs a **session tracker** (started in the FastAPI lifespan): it tails the sshd log (`/var/log/callis/auth.log`, the same file the fail2ban sidecar reads) and records accepted connections and disconnects as `SshSession` rows with `session_opened`/`session_closed` audit entries. The tracker persists its read position so an API-only restart resumes where it stopped, and the startup sweep only closes records whose connection is no longer established. In the unified container, admins can terminate a session from the web UI — the tracker locates the per-connection sshd child via `/proc/net/tcp{,6}` socket-inode matching and signals it (api and sshd share a PID namespace).
 
 **Directory layout:**
-```
+
+```text
 api/
 ├── Dockerfile               # Standalone API image (for split deploys)
 ├── pyproject.toml
