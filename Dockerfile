@@ -10,7 +10,7 @@ RUN apt-get update && \
     mkdir -p /etc/ssh/host_keys /var/run/sshd /var/log/callis
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:0.6.12 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /usr/local/bin/uv
 
 # --- API setup ---
 WORKDIR /app
