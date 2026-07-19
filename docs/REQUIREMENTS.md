@@ -49,7 +49,8 @@ The primary deployment target is homelab and small-team infrastructure environme
 ### 2.4 Host Management
 
 - **FR-HOST-01** — Admins MUST be able to define jump targets (hosts) with: label, hostname/IP, port, and description.
-- **FR-HOST-02** — Hosts MUST be assignable to users, restricting which targets each user may jump to. (Group-based assignment is a planned enhancement.)
+- **FR-HOST-02** — Hosts MUST be assignable to users, restricting which targets each user may jump to.
+- **FR-HOST-05** — Admins MUST be able to define host groups (named sets of hosts) and assign users to groups. A user's effective host access is the union of their direct host assignments and the hosts of every group they belong to. The same effective-access resolution MUST be used by the internal API (permitopen enforcement, tag resolution, host listing) and the web UI.
 - **FR-HOST-03** — The web UI MUST display per-host the SSH client config snippet needed to use Callis as a ProxyJump for that host.
 - **FR-HOST-04** — Hosts MAY be deactivated without deletion.
 
@@ -58,7 +59,8 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-AUTH-01** — All web UI routes MUST require an authenticated session. The only unauthenticated routes are `/login`, `/health`, the CLI installer endpoints (`/install.sh`, `/callis.sh`), and `/setup` (which locks itself down permanently once an admin account exists).
 - **FR-AUTH-02** — Authentication MUST use username and password. Passwords MUST be hashed with bcrypt at cost factor ≥ 12.
 - **FR-AUTH-03** — TOTP (RFC 6238) 2FA MUST be mandatory for all users. A user MUST complete TOTP enrollment before accessing any other page.
-- **FR-AUTH-04** — TOTP enrollment MUST present a QR code and manual secret entry on first login. The TOTP secret MUST be stored encrypted in the database. Backup codes are a future enhancement.
+- **FR-AUTH-04** — TOTP enrollment MUST present a QR code and manual secret entry on first login. The TOTP secret MUST be stored encrypted in the database.
+- **FR-AUTH-11** — On TOTP enrollment, a set of 10 single-use recovery codes MUST be issued and shown exactly once. A recovery code MAY be used in place of a TOTP code at login and is invalidated on use. Codes MUST be stored only as keyed digests (HMAC-SHA256 with `SECRET_KEY`), never in plaintext. Users (and admins acting on any user) MUST be able to regenerate the set, which invalidates all previous codes. Issuance and use MUST be audited.
 - **FR-AUTH-05** — Sessions MUST be stored as JWTs in an `httpOnly`, `Secure`, `SameSite=Strict` cookie. JWTs MUST NOT be returned in response bodies or stored in localStorage.
 - **FR-AUTH-06** — Sessions MUST expire after a configurable idle timeout (default: 30 minutes).
 - **FR-AUTH-07** — Sessions MUST have a configurable absolute maximum lifetime regardless of activity (default: 8 hours).
@@ -82,11 +84,21 @@ The primary deployment target is homelab and small-team infrastructure environme
   - Role changed
   - Host added
   - Host deactivated/deleted
+  - Host group created/deleted, and group host/user membership changes
+  - Recovery codes generated; recovery code used at login
+  - SSH session opened/closed; session terminated by an admin
 - **FR-AUDIT-02** — Audit log entries MUST be append-only. No UI action or API call MUST be able to delete or modify audit log entries.
 - **FR-AUDIT-03** — The audit log MUST be viewable in the web UI with filtering by event type, user, and date range.
 - **FR-AUDIT-04** — Audit logs MUST be persisted across container restarts. They are stored in the database, which lives on the persistent `/data` Docker volume.
 
-### 2.7 Deployment
+### 2.7 Session Visibility
+
+- **FR-SESS-01** — Accepted SSH connections and disconnects MUST be tracked from the sshd log into session records (user, source IP/port, key fingerprint, start/end time) with corresponding audit entries. Pre-auth failures are out of scope (fail2ban's domain).
+- **FR-SESS-02** — The web UI MUST show currently active sessions and recently closed sessions.
+- **FR-SESS-03** — Admins MUST be able to terminate an active session from the web UI (unified container only, where api and sshd share a PID namespace). The record MUST be closed and audited only after the owning process is successfully signalled; if the process cannot be located (e.g. split deployment), the record MUST remain open and the admin informed.
+- **FR-SESS-04** — At startup, session records left open by a previous run MUST be closed (reason `server_restart`, audited) unless their connection is verifiably still established; the tracker MUST resume from its persisted log position so sessions accepted while the API was down are reconciled.
+
+### 2.8 Deployment
 
 - **FR-DEPLOY-01** — The full stack MUST be deployable with a single `docker compose up -d` command. No `.env` file is required for basic operation — `SECRET_KEY` is auto-generated and the admin account is created via the web-based setup wizard on first load.
 - **FR-DEPLOY-02** — The stack MUST work with no domain name on a LAN (accessing the UI via IP and port).
