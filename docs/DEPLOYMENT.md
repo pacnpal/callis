@@ -42,9 +42,14 @@ Create `.env` with proxy settings:
 ```env
 BASE_URL=https://callis.example.com
 HTTPS_ENABLED=true
-# Required with HTTPS_ENABLED — set to your reverse proxy's IP/CIDR so only it
-# can supply X-Forwarded-For. A wildcard "*" is refused at startup.
-TRUSTED_PROXIES=127.0.0.1
+# Required with HTTPS_ENABLED. Set it to the address Callis SEES your proxy
+# connect from (NOT the proxy's public address, and usually NOT 127.0.0.1).
+# Recommended: run the proxy on the same Docker network with the web port
+# unpublished, and set this to that network's subnet (docker network inspect).
+# Unsure? Attempt a login through the proxy and read source_ip from the audit
+# log — that is the value to use. A wildcard "*" or catch-all (0.0.0.0/0, ::/0)
+# is refused at startup. See the README "Choosing TRUSTED_PROXIES" section.
+TRUSTED_PROXIES=172.18.0.0/16
 ```
 
 Start:
@@ -79,7 +84,7 @@ The planned design: `AUTH_MODE=oidc` plus `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OI
 | `OIDC_CLIENT_ID` | If OIDC | — | OIDC client ID |
 | `OIDC_CLIENT_SECRET` | If OIDC | — | OIDC client secret |
 | `HTTPS_ENABLED` | No | `false` | Enable HSTS and Secure cookie flag |
-| `TRUSTED_PROXIES` | When `HTTPS_ENABLED=true` | `*` | Comma-separated reverse-proxy IPs/CIDRs allowed to set `X-Forwarded-*`. Required when `HTTPS_ENABLED=true` — a wildcard `*` or empty value is refused at startup (it would let any client spoof `X-Forwarded-For`, forging audit source IPs and bypassing rate limiting). Ignored in LAN/HTTP mode (only loopback is trusted). |
+| `TRUSTED_PROXIES` | When `HTTPS_ENABLED=true` | `*` | Comma-separated IPs/CIDRs Callis **observes the proxy connect from** (for Docker, the proxy's network subnet or bridge gateway — usually not `127.0.0.1`); only that peer may set `X-Forwarded-*`. Required when `HTTPS_ENABLED=true` — `*`, empty, or a catch-all (`0.0.0.0/0`, `::/0`) is refused at startup (it would let any client spoof `X-Forwarded-For`, forging audit source IPs and bypassing rate limiting). Ignored in LAN/HTTP mode (only loopback is trusted). See the README "Choosing TRUSTED_PROXIES" section. |
 | `DEV_MODE` | No | `false` | Enable verbose SQL logging |
 | `LOG_LEVEL` | No | `info` | Logging level (debug, info, warning, error) |
 | `TZ` | No | `UTC` | Timezone for log timestamps |
