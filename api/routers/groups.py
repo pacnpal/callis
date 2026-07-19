@@ -74,7 +74,9 @@ async def create_group(
         # session back when the HTTPException propagates out.
         await db.flush()
     except IntegrityError:
-        raise HTTPException(status_code=400, detail="A group with this name already exists")
+        raise HTTPException(
+            status_code=400, detail="A group with this name already exists"
+        ) from None
 
     await write_audit_log(
         db,
