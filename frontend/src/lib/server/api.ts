@@ -19,14 +19,24 @@ export interface ApiError {
 	detail: string;
 }
 
+/** Whether the deployment declares a trusted TLS proxy in front of the SSR
+ *  server (same switch the API uses for its TRUSTED_PROXIES handling). */
+const behindTrustedProxy = () => (env.HTTPS_ENABLED ?? '').toLowerCase() === 'true';
+
 function clientAddressChain(event: RequestEvent): string {
-	const incoming = event.request.headers.get('x-forwarded-for');
 	let addr = '';
 	try {
 		addr = event.getClientAddress();
 	} catch {
 		// Prerendering or unavailable socket — leave empty.
 	}
+	// Only propagate the browser-supplied X-Forwarded-For chain when a front
+	// proxy is explicitly declared; otherwise a direct client (including one
+	// connecting over a loopback SSH tunnel, which the API trusts as a hop)
+	// could spoof its address to skew rate limiting and audit source IPs.
+	const incoming = behindTrustedProxy()
+		? event.request.headers.get('x-forwarded-for')
+		: null;
 	return [incoming, addr].filter(Boolean).join(', ');
 }
 
@@ -42,9 +52,11 @@ export async function apiFetch(
 	if (cookie) headers['cookie'] = cookie;
 	const xff = clientAddressChain(event);
 	if (xff) headers['x-forwarded-for'] = xff;
-	// Pass through the TLS proxy's protocol hint when present; without one the
-	// derived protocol is unreliable, so omit it rather than guess.
-	const proto = event.request.headers.get('x-forwarded-proto');
+	// Pass through the TLS proxy's protocol hint only when a front proxy is
+	// declared; a direct client's header is untrusted.
+	const proto = behindTrustedProxy()
+		? event.request.headers.get('x-forwarded-proto')
+		: null;
 	if (proto) headers['x-forwarded-proto'] = proto;
 
 	let body: string | undefined;

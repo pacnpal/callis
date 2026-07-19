@@ -43,6 +43,8 @@ export const actions: Actions = {
 		}
 		// The private key exists only in this one response — it is never
 		// persisted server-side and disappears when the page re-renders.
+		// Match the API's caching posture on the response that carries it.
+		event.setHeaders({ 'cache-control': 'no-store' });
 		return { generated: result.data };
 	},
 	revokeKey: async (event) => {
