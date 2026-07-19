@@ -42,6 +42,9 @@ Create `.env` with proxy settings:
 ```env
 BASE_URL=https://callis.example.com
 HTTPS_ENABLED=true
+# Required with HTTPS_ENABLED — set to your reverse proxy's IP/CIDR so only it
+# can supply X-Forwarded-For. A wildcard "*" is refused at startup.
+TRUSTED_PROXIES=127.0.0.1
 ```
 
 Start:
@@ -76,6 +79,7 @@ The planned design: `AUTH_MODE=oidc` plus `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OI
 | `OIDC_CLIENT_ID` | If OIDC | — | OIDC client ID |
 | `OIDC_CLIENT_SECRET` | If OIDC | — | OIDC client secret |
 | `HTTPS_ENABLED` | No | `false` | Enable HSTS and Secure cookie flag |
+| `TRUSTED_PROXIES` | When `HTTPS_ENABLED=true` | `*` | Comma-separated reverse-proxy IPs/CIDRs allowed to set `X-Forwarded-*`. Required when `HTTPS_ENABLED=true` — a wildcard `*` or empty value is refused at startup (it would let any client spoof `X-Forwarded-For`, forging audit source IPs and bypassing rate limiting). Ignored in LAN/HTTP mode (only loopback is trusted). |
 | `DEV_MODE` | No | `false` | Enable verbose SQL logging |
 | `LOG_LEVEL` | No | `info` | Logging level (debug, info, warning, error) |
 | `TZ` | No | `UTC` | Timezone for log timestamps |

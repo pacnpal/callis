@@ -75,22 +75,25 @@ app.add_middleware(SecurityHeadersMiddleware)
 # The SvelteKit SSR server always fronts this app from loopback and forwards
 # the real client address in X-Forwarded-For, so loopback is always trusted.
 # When HTTPS_ENABLED=true the deployment sits behind an additional TLS reverse
-# proxy; TRUSTED_PROXIES (default "*") can be narrowed to specific IPs/CIDRs so
-# only known proxies can extend the forwarding chain, protecting audit-log
-# source IPs from being spoofed by direct clients.
+# proxy; TRUSTED_PROXIES must name that proxy's IP/CIDR(s) so only it can extend
+# the forwarding chain. Trusting "*" would let ANY client spoof X-Forwarded-For,
+# forging audit-log source IPs and bypassing the per-IP login rate limiter — so
+# we fail closed on a missing/wildcard allow-list rather than fall open.
 _settings = get_settings()
-_raw = _settings.TRUSTED_PROXIES.strip()
-if _settings.HTTPS_ENABLED and _raw == "*":
-    logger.warning(
-        "HTTPS_ENABLED is set with TRUSTED_PROXIES=\"*\": forwarded headers from "
-        "any client are trusted. Narrow TRUSTED_PROXIES to your proxy's IP/CIDR "
-        "so audit-log source IPs and rate limiting cannot be spoofed."
-    )
-    _trusted_hosts: str | list[str] = "*"
+_proxy_tokens = [h.strip() for h in _settings.TRUSTED_PROXIES.split(",") if h.strip()]
+if _settings.HTTPS_ENABLED:
+    if not _proxy_tokens or "*" in _proxy_tokens:
+        raise RuntimeError(
+            'HTTPS_ENABLED=true requires TRUSTED_PROXIES to name your reverse '
+            "proxy's IP address(es) or CIDR(s), comma-separated. Trusting \"*\" "
+            "lets any client spoof X-Forwarded-For, forging audit source IPs and "
+            "bypassing login rate limiting. Set TRUSTED_PROXIES to your proxy and "
+            "restart."
+        )
+    _trusted_hosts: str | list[str] = ["127.0.0.1", "::1"] + _proxy_tokens
 else:
+    # LAN/HTTP mode: only the loopback SSR server is a trusted forwarding hop.
     _trusted_hosts = ["127.0.0.1", "::1"]
-    if _settings.HTTPS_ENABLED:
-        _trusted_hosts += [h.strip() for h in _raw.split(",") if h.strip()]
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_hosts)
 
 # Routers — the JSON API is versioned under /api/v1 and is the single source

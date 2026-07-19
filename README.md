@@ -281,7 +281,7 @@ ssh my-internal-server
 | `MAX_KEYS_PER_USER` | No | `5` | Maximum SSH keys per user |
 | `AUTH_MODE` | No | `local` | Only `local` is implemented today; OIDC support is planned |
 | `HTTPS_ENABLED` | No | `false` | Enable HSTS and Secure cookie flag |
-| `TRUSTED_PROXIES` | No | `*` | Comma-separated proxy IPs/CIDRs allowed to set `X-Forwarded-*` headers (only used when `HTTPS_ENABLED=true`) |
+| `TRUSTED_PROXIES` | When `HTTPS_ENABLED=true` | `*` | Comma-separated proxy IPs/CIDRs allowed to set `X-Forwarded-*` headers. **Required when `HTTPS_ENABLED=true`** — a wildcard `*` or empty value is refused at startup because it lets any client spoof `X-Forwarded-For` (forged audit IPs, rate-limit bypass). Ignored in LAN/HTTP mode. |
 | `DEV_MODE` | No | `false` | Enable development mode features (verbose SQL logging) |
 | `LOG_LEVEL` | No | `info` | Logging level |
 | `TZ` | No | `UTC` | Timezone |
