@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select, func, text
+from sqlalchemy.ext.asyncio import AsyncEngine
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from core import get_engine, get_runtime_setting, get_session_factory, get_settings, limiter, load_db_settings
@@ -239,7 +240,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 _initialized: set[str] = set()
 
 
-async def _sync_pg_audit_enum(engine) -> None:
+async def _sync_pg_audit_enum(engine: AsyncEngine) -> None:
     """PostgreSQL only: add any missing AuditAction labels to the native enum.
 
     Base.metadata.create_all() creates missing tables but never alters an

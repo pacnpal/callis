@@ -321,6 +321,12 @@ async def test_rbac_and_totp_guard(client):
         r = await bob.get("/api/v1/hosts/deploy-key")
         assert r.status_code == 403
 
+        # Group management and session control are admin-only
+        r = await bob.post("/api/v1/groups", json={"name": "prod"})
+        assert r.status_code == 403
+        r = await bob.post("/api/v1/sessions/nonexistent/terminate")
+        assert r.status_code == 403
+
         # Hosts list is visible to any enrolled user
         r = await bob.get("/api/v1/hosts")
         assert r.status_code == 200
@@ -436,9 +442,20 @@ async def test_unauthenticated_requests_rejected(client):
     await complete_setup(client)
     fresh = AsyncClient(transport=ASGITransport(app=main.app), base_url="http://testserver")
     async with fresh:
-        for path in ("/api/v1/dashboard", "/api/v1/users", "/api/v1/hosts", "/api/v1/audit", "/api/v1/settings"):
+        for path in (
+            "/api/v1/dashboard",
+            "/api/v1/users",
+            "/api/v1/hosts",
+            "/api/v1/audit",
+            "/api/v1/settings",
+            "/api/v1/groups",
+            "/api/v1/sessions",
+        ):
             r = await fresh.get(path)
             assert r.status_code == 401, path
+        # Mutating group/session routes reject anonymous callers too
+        assert (await fresh.post("/api/v1/groups", json={"name": "x"})).status_code == 401
+        assert (await fresh.post("/api/v1/sessions/x/terminate")).status_code == 401
         # Meta and health stay public
         assert (await fresh.get("/api/v1/meta")).status_code == 200
         assert (await fresh.get("/health")).status_code == 200
