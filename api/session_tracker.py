@@ -30,6 +30,7 @@ logger = logging.getLogger("callis")
 SSHD_LOG_PATH = os.environ.get("CALLIS_SSHD_LOG", "/var/log/callis/auth.log")
 POLL_INTERVAL = 2.0
 _MISSING_FILE_RETRY = 15.0
+_EVENT_RETRY_LIMIT = 5
 
 _ACCEPT_RE = re.compile(
     r"Accepted publickey for (?P<username>\S+) from (?P<ip>\S+) port (?P<port>\d+)"
@@ -263,19 +264,29 @@ async def _save_log_position_safe(inode: int, offset: int) -> None:
         logger.exception("Failed to persist sshd log position")
 
 
-def resolve_start_offset(saved: tuple[int, int] | None, inode: int, size: int) -> int:
+def resolve_start_offset(
+    saved: tuple[int, int] | None,
+    inode: int,
+    size: int,
+    appeared_after_absence: bool = False,
+) -> int:
     """Where to start reading a newly opened log file.
 
     Resume from the persisted offset when it belongs to this same file, so
     sessions accepted while the API was down (sshd keeps running under
-    supervisord) are reconciled on restart. Otherwise — first run, rotation
-    while down, or truncation — start at EOF: replaying unbounded history
-    would fabricate session records with meaningless timestamps.
+    supervisord) are reconciled on restart. A file that appeared after the
+    follower found it missing is brand new (sshd just created it) — read it
+    from the start so connections accepted before our retry woke up are not
+    dropped. Otherwise — first run against an existing log, rotation while
+    down, or truncation — start at EOF: replaying unbounded history would
+    fabricate session records with meaningless timestamps.
     """
     if saved is not None:
         saved_inode, saved_offset = saved
         if saved_inode == inode and 0 <= saved_offset <= size:
             return saved_offset
+    if appeared_after_absence:
+        return 0
     return size
 
 
@@ -293,6 +304,9 @@ async def follow_sshd_log(path: str | None = None, poll_interval: float = POLL_I
     cur_ino = 0
     pos_dirty = False
     warned_missing = False
+    file_was_missing = False
+    retry_pos = -1
+    retry_count = 0
     try:
         while True:
             if f is None:
@@ -300,15 +314,24 @@ async def follow_sshd_log(path: str | None = None, poll_interval: float = POLL_I
                     f = open(path, "rb")
                     st = os.fstat(f.fileno())
                     cur_ino = st.st_ino
-                    f.seek(resolve_start_offset(await _load_log_position(), st.st_ino, st.st_size))
+                    f.seek(
+                        resolve_start_offset(
+                            await _load_log_position(),
+                            st.st_ino,
+                            st.st_size,
+                            appeared_after_absence=file_was_missing,
+                        )
+                    )
                     logger.info(
                         "Session tracker following sshd log at %s from offset %d", path, f.tell()
                     )
                     warned_missing = False
+                    file_was_missing = False
                 except OSError:
                     if f is not None:
                         f.close()
                         f = None
+                    file_was_missing = True
                     if not warned_missing:
                         logger.info(
                             "sshd log %s not readable; session tracking idle until it appears",
@@ -357,6 +380,7 @@ async def follow_sshd_log(path: str | None = None, poll_interval: float = POLL_I
                 continue
 
             pos_dirty = True
+            line_start = f.tell() - len(raw)
             event = parse_log_line(raw.decode("utf-8", errors="replace"))
             if event is None:
                 # Yield so a burst of non-matching lines cannot starve the
@@ -365,11 +389,33 @@ async def follow_sshd_log(path: str | None = None, poll_interval: float = POLL_I
                 continue
             try:
                 await apply_log_event(event)
+                retry_pos, retry_count = -1, 0
             except Exception:
-                logger.exception("Failed to record SSH session event %r", event)
-            # Persist after every applied event so a crash replays at most
-            # the events since the last EOF idle, which the idempotent
-            # accept/close handlers absorb.
+                # Transient failures (e.g. SQLite "database is locked") must
+                # not lose the event: rewind and retry the same line, bounded
+                # so a permanently failing line cannot wedge the tracker.
+                if line_start == retry_pos:
+                    retry_count += 1
+                else:
+                    retry_pos, retry_count = line_start, 1
+                if retry_count <= _EVENT_RETRY_LIMIT:
+                    logger.exception(
+                        "Failed to record SSH session event %r (attempt %d); retrying",
+                        event,
+                        retry_count,
+                    )
+                    f.seek(line_start)
+                    await asyncio.sleep(poll_interval)
+                    continue
+                logger.exception(
+                    "Failed to record SSH session event %r after %d attempts; skipping line",
+                    event,
+                    retry_count,
+                )
+                retry_pos, retry_count = -1, 0
+            # Persist only after the event was applied (or given up on) so a
+            # crash replays at most the events since the last persist, which
+            # the idempotent accept/close handlers absorb.
             await _save_log_position_safe(cur_ino, f.tell())
             pos_dirty = False
     except asyncio.CancelledError:

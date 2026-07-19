@@ -175,6 +175,16 @@ def test_resolve_start_offset():
     assert resolve_start_offset((7, 500), inode=7, size=500) == 500
 
 
+def test_resolve_start_offset_file_appeared_after_absence():
+    # A file that appeared after being missing is brand new: read from 0 so
+    # connections accepted before the retry woke up are not dropped
+    assert resolve_start_offset(None, inode=7, size=500, appeared_after_absence=True) == 0
+    # ...but a matching saved position still wins (restart during the window)
+    assert resolve_start_offset((7, 200), inode=7, size=500, appeared_after_absence=True) == 200
+    # Stale state from a different file: still read the new file from 0
+    assert resolve_start_offset((6, 200), inode=7, size=500, appeared_after_absence=True) == 0
+
+
 def test_accept_for_unknown_user_still_recorded(monkeypatch):
     async def scenario():
         engine, factory = await _make_db()
