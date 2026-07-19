@@ -77,6 +77,9 @@ class User(Base):
     totp_enrolled = Column(Boolean, default=False, nullable=False)
     role = Column(Enum(UserRole), default=UserRole.readonly, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    # Bumped to invalidate all of this user's outstanding session JWTs (which
+    # embed the epoch at issue time) — e.g. on logout. See core.create_jwt.
+    session_epoch = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 

@@ -13,6 +13,8 @@ from core import (
     get_settings,
     hash_password,
     limiter,
+    totp_consume_step,
+    totp_matching_step,
     totp_qr_b64,
     verify_password,
     verify_totp,
@@ -88,13 +90,21 @@ async def login_submit(
         await db.commit()
         raise error
 
-    # If TOTP enrolled, verify code (always run decrypt+verify for constant-time)
+    # If TOTP enrolled, verify code (always run decrypt+match for constant-time)
     if user.totp_enrolled:
         secret = decrypt_totp_secret(user.totp_secret)
         submitted_totp_code = (body.totp_code or "").strip()
-        # verify_totp already handles invalid/empty formats in constant-time
-        if not verify_totp(secret, submitted_totp_code):
-            totp_failure_reason = "totp_missing" if not submitted_totp_code else "totp_invalid"
+        # Match the code (±1 step, constant-time), then enforce single use so a
+        # code observed in transit cannot be replayed within its validity window.
+        matched_step = totp_matching_step(secret, submitted_totp_code)
+        accepted = matched_step is not None and totp_consume_step(user.id, matched_step)
+        if not accepted:
+            if not submitted_totp_code:
+                totp_failure_reason = "totp_missing"
+            elif matched_step is not None:
+                totp_failure_reason = "totp_replay"
+            else:
+                totp_failure_reason = "totp_invalid"
             await write_audit_log(
                 db,
                 actor_id=None,
@@ -118,7 +128,7 @@ async def login_submit(
         source_ip=request.client.host if request.client else None,
     )
 
-    token = create_jwt(user.id)
+    token = create_jwt(user.id, user.session_epoch)
     set_session_cookie(response, token)
     return SessionOut(user=user_out(user))
 
@@ -188,6 +198,14 @@ async def logout(
 ):
     user = getattr(request.state, "user", None)
     if user:
+        # Bump the user's session epoch so every outstanding JWT they hold
+        # (this device and any other) stops validating — a real server-side
+        # logout, not just a client-side cookie delete.
+        db_user = (
+            await db.execute(select(User).where(User.id == user.id))
+        ).scalar_one_or_none()
+        if db_user:
+            db_user.session_epoch = (db_user.session_epoch or 0) + 1
         await write_audit_log(
             db,
             actor_id=user.id,

@@ -311,7 +311,7 @@ def _get_session_idle_timeout_seconds() -> int:
     return get_settings().SESSION_IDLE_TIMEOUT
 
 
-def create_jwt(user_id: str) -> str:
+def create_jwt(user_id: str, session_epoch: int = 0) -> str:
     settings = get_settings()
     issued_at = datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(seconds=_get_session_max_lifetime_seconds())
@@ -320,6 +320,11 @@ def create_jwt(user_id: str) -> str:
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
         "last_activity": issued_at.isoformat(),
+        # Session-revocation epoch: the SessionMiddleware rejects the token if
+        # this no longer matches the user's current session_epoch in the DB,
+        # so bumping the user's epoch (e.g. on logout) invalidates all their
+        # outstanding tokens server-side despite the stateless JWT design.
+        "epoch": int(session_epoch),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
@@ -425,6 +430,52 @@ def verify_totp(secret: str, code: str) -> bool:
         matched |= secrets.compare_digest(expected, normalized_code)
 
     return valid_format and matched
+
+
+# TOTP replay protection: remember the last consumed time-step per user so a
+# code observed in transit cannot be replayed within its ~90s validity window.
+# This is a process-local cache (single-worker is the default Callis topology);
+# in a multi-worker deployment each worker guards its own accepted codes, which
+# still narrows — but does not fully close — the replay window.
+_totp_last_step: dict[str, int] = {}
+_totp_replay_lock = threading.Lock()
+
+
+def totp_matching_step(secret: str, code: str) -> int | None:
+    """Return the absolute time-step index a valid TOTP code matches, else None.
+
+    Mirrors verify_totp's ±1 skew tolerance and constant-time comparison, but
+    returns the matched step index so callers can enforce single-use (replay
+    protection) by rejecting a step that was already consumed.
+    """
+    submitted = code.strip()
+    valid_format = submitted.isdigit() and len(submitted) == 6
+    normalized_code = submitted if valid_format else "000000"
+
+    totp = pyotp.TOTP(secret)
+    now = datetime.now(timezone.utc).timestamp()
+    base_step = int(now // totp.interval)
+    matched_step: int | None = None
+    for step_offset in (-1, 0, 1):
+        expected = totp.at(now + (step_offset * totp.interval))
+        if secrets.compare_digest(expected, normalized_code):
+            matched_step = base_step + step_offset
+
+    return matched_step if valid_format else None
+
+
+def totp_consume_step(user_id: str, step: int) -> bool:
+    """Record a consumed TOTP step for *user_id*.
+
+    Returns True if the step is newly consumed (accept), or False if a step at
+    or before it was already used for this user (replay — reject).
+    """
+    with _totp_replay_lock:
+        last = _totp_last_step.get(user_id)
+        if last is not None and step <= last:
+            return False
+        _totp_last_step[user_id] = step
+        return True
 
 
 def get_totp_uri(secret: str, username: str) -> str:

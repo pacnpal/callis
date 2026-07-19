@@ -159,7 +159,7 @@ async def setup_submit(
                 raise HTTPException(status_code=400, detail=f"Username '{username}' is already taken.")
 
     # Set session cookie so TOTP step is authenticated
-    token = create_jwt(admin.id)
+    token = create_jwt(admin.id, admin.session_epoch)
     set_session_cookie(response, token)
     return SessionOut(user=user_out(admin))
 

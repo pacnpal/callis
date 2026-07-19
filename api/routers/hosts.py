@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from core import get_db, get_server_deploy_public_key, slugify, write_audit_log
 from dependencies import require_role, require_totp_complete
-from models import AuditAction, Host, User
+from models import AuditAction, Host, User, UserRole, user_host_assignment
 from schemas import CreateHostIn, DeployKeyOut, HostOut, host_out
 
 # Hostnames/IPv4 only; IPv6 literals (with colons) not yet supported
@@ -36,10 +36,35 @@ async def host_list(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_totp_complete),
 ) -> list[HostOut]:
+    # Admins manage the whole fleet and need the full inventory plus the
+    # user->host assignment map. Non-admins are shown only the hosts they can
+    # actually reach, with other users' assignments stripped — the internal SSH
+    # endpoint already filters this way; the web view must not leak the entire
+    # network topology and access map to a low-privilege account.
+    if user.role == UserRole.admin:
+        result = await db.execute(
+            select(Host)
+            .options(selectinload(Host.assigned_users))
+            .order_by(Host.created_at.desc())
+        )
+        return [host_out(h) for h in result.scalars().all()]
+
     result = await db.execute(
-        select(Host).options(selectinload(Host.assigned_users)).order_by(Host.created_at.desc())
+        select(Host)
+        .options(selectinload(Host.assigned_users))
+        .join(user_host_assignment)
+        .where(
+            user_host_assignment.c.user_id == user.id,
+            Host.is_active == True,
+        )
+        .order_by(Host.created_at.desc())
     )
-    return [host_out(h) for h in result.scalars().all()]
+    # Strip the assignment map — a non-admin must not learn who else can reach
+    # a host, only that they themselves can.
+    return [
+        host_out(h).model_copy(update={"assigned_users": []})
+        for h in result.scalars().all()
+    ]
 
 
 @router.get("/deploy-key")

@@ -339,6 +339,99 @@ async def test_rbac_and_totp_guard(client):
 
 
 @pytest.mark.asyncio
+async def test_host_list_scoped_and_audit_admin_only(client):
+    await complete_setup(client)
+
+    # Admin creates two hosts, a readonly user, and assigns the user to one host.
+    h1 = (await client.post("/api/v1/hosts", json={"label": "Alpha", "hostname": "10.0.0.1"})).json()
+    (await client.post("/api/v1/hosts", json={"label": "Beta", "hostname": "10.0.0.2"})).json()
+    carol_id = (
+        await client.post(
+            "/api/v1/users",
+            json={"username": "carol", "password": USER_PASSWORD, "role": "readonly"},
+        )
+    ).json()["id"]
+    assert (await client.post(f"/api/v1/hosts/{h1['id']}/assign/{carol_id}")).status_code == 200
+
+    carol = AsyncClient(transport=ASGITransport(app=main.app), base_url="http://testserver")
+    async with carol:
+        assert (
+            await carol.post(
+                "/api/v1/auth/login",
+                json={"username": "carol", "password": USER_PASSWORD, "totp_code": ""},
+            )
+        ).status_code == 200
+        secret = (await carol.get("/api/v1/auth/totp/setup")).json()["secret"]
+        assert (
+            await carol.post(
+                "/api/v1/auth/totp/verify", json={"totp_code": pyotp.TOTP(secret).now()}
+            )
+        ).status_code == 200
+
+        # Finding 1: a non-admin sees ONLY assigned hosts, with no assignment map.
+        hosts = (await carol.get("/api/v1/hosts")).json()
+        assert [h["alias"] for h in hosts] == ["alpha"]
+        assert hosts[0]["assigned_users"] == []
+
+        # Admin still sees the full inventory including the assignment map.
+        admin_hosts = (await client.get("/api/v1/hosts")).json()
+        assert {h["alias"] for h in admin_hosts} == {"alpha", "beta"}
+        alpha = next(h for h in admin_hosts if h["alias"] == "alpha")
+        assert [u["username"] for u in alpha["assigned_users"]] == ["carol"]
+
+        # Finding 2: the audit log is admin-only.
+        assert (await carol.get("/api/v1/audit")).status_code == 403
+        assert (await client.get("/api/v1/audit")).status_code == 200
+
+        # Finding 2: the dashboard hides recent activity from non-admins.
+        assert (await carol.get("/api/v1/dashboard")).json()["recent_audit"] == []
+        assert len((await client.get("/api/v1/dashboard")).json()["recent_audit"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_session_revoked_server_side_on_logout(client):
+    await complete_setup(client)
+
+    # Capture the live session token, then log out (which bumps session_epoch).
+    old_cookie = client.cookies.get("callis_session")
+    assert old_cookie
+    assert (await client.post("/api/v1/auth/logout")).status_code == 204
+
+    # Finding 4: replaying the pre-logout token is rejected server-side, not
+    # merely cleared client-side. Restore the captured token onto the client
+    # (logout deleted it) and confirm the API still refuses it.
+    client.cookies.set("callis_session", old_cookie)
+    r = await client.get("/api/v1/auth/me")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_totp_code_cannot_be_replayed(client):
+    secret = await complete_setup(client)
+    await client.post("/api/v1/auth/logout")
+
+    code = pyotp.TOTP(secret).now()
+    r = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": ADMIN_PASSWORD, "totp_code": code},
+    )
+    assert r.status_code == 200
+
+    # Finding 5: the same code is refused on a second login even though it is
+    # still within its validity window.
+    r = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": ADMIN_PASSWORD, "totp_code": code},
+    )
+    assert r.status_code == 401
+    r = await client.get("/api/v1/audit", params={"action": "totp_failure"})
+    assert any(
+        e["detail"] and e["detail"].get("reason") == "totp_replay"
+        for e in r.json()["entries"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_unauthenticated_requests_rejected(client):
     await complete_setup(client)
     fresh = AsyncClient(transport=ASGITransport(app=main.app), base_url="http://testserver")

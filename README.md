@@ -134,9 +134,16 @@ Callis serves plain HTTP on port 8080. TLS termination is handled by your revers
 ```bash
 BASE_URL=https://callis.example.com
 HTTPS_ENABLED=true
+# Required with HTTPS_ENABLED — the IP/CIDR your reverse proxy connects FROM.
+# Use 127.0.0.1 when the proxy runs on the same host and dials localhost:8080
+# (the common Caddy/Nginx setup); use the proxy container's network address if
+# it reaches Callis over a Docker/other network.
+TRUSTED_PROXIES=127.0.0.1
 ```
 
 `HTTPS_ENABLED=true` enables HSTS headers and sets the `Secure` flag on session cookies (required when serving over HTTPS).
+
+`TRUSTED_PROXIES` must name your reverse proxy's address so only it can supply `X-Forwarded-For`. A wildcard `*` or catch-all network (`0.0.0.0/0`) is refused at startup, because trusting it would let any client spoof their source IP — forging audit-log entries and bypassing login rate limiting.
 
 **2. Point your reverse proxy at Callis port 8080:**
 
