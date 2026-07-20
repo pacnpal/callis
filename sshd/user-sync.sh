@@ -15,6 +15,12 @@
 
 API_HOST="${CALLIS_API_HOST:-localhost}"
 SYNC_INTERVAL="${CALLIS_USER_SYNC_INTERVAL:-30}"
+# Guard against a misconfigured interval (empty, non-numeric, or 0) that would
+# turn the loop into a tight poll hammering the internal API. Fall back to 30s.
+case "$SYNC_INTERVAL" in
+    ''|*[!0-9]*) SYNC_INTERVAL=30 ;;
+esac
+[ "$SYNC_INTERVAL" -ge 1 ] 2>/dev/null || SYNC_INTERVAL=30
 
 # Resolve the internal API secret. Prefer the env var; fall back to deriving it
 # from the persisted SECRET_KEY the same way entrypoint.sh does. The env var is
