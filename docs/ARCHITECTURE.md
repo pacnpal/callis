@@ -2,7 +2,7 @@
 
 ## 1. System Overview
 
-Callis runs as a single unified container (`python:3.12-slim`) managed by supervisord, with an optional fail2ban sidecar. The container runs both the FastAPI application and OpenSSH server as supervised processes.
+Callis runs as a single unified container (`python:3.12-slim` plus a bare Node runtime binary) managed by supervisord, with an optional fail2ban sidecar. The container runs three supervised processes: the SvelteKit SSR web server (the only public HTTP entrypoint), the FastAPI JSON API (the single source of truth for all data and business logic), and OpenSSH.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -14,8 +14,12 @@ Callis runs as a single unified container (`python:3.12-slim`) managed by superv
 │  │  ├── sshd (OpenSSH)         :22 → host :2222  │      │
 │  │  │   ├── auth-keys.sh → http://localhost:8081  │      │
 │  │  │   └── callis-cmd.sh (ForceCommand)          │      │
+│  │  ├── web (SvelteKit SSR, Node)                 │      │
+│  │  │   └── :8080 — web UI      → host :8080      │      │
+│  │  │       proxies /install.sh /callis.sh        │      │
+│  │  │       /health → api:8000                    │      │
 │  │  └── api (FastAPI + Uvicorn)                   │      │
-│  │      ├── :8080 — web UI      → host :8080      │      │
+│  │      ├── :8000 — JSON API (localhost only)     │      │
 │  │      └── :8081 — internal API (localhost only)  │      │
 │  └────────────────────────────────────────────────┘      │
 │         │                                                │
@@ -27,7 +31,7 @@ Callis runs as a single unified container (`python:3.12-slim`) managed by superv
 
 External access:
   :2222 → sshd (SSH jump connections + CLI resolve/list)
-  :8080 → api  (web UI, or via reverse proxy)
+  :8080 → web  (SSR web UI, or via reverse proxy)
 ```
 
 ---
@@ -53,20 +57,32 @@ Key files:
 - `/etc/ssh/callis-cmd.sh` — the `ForceCommand` script: routes `resolve <tag>` and `list` commands, denies all other shell access
 - `/etc/ssh/host_keys/ssh_host_ed25519_key` — persisted host key (volume-mounted)
 
-### 2.2 api Process
+### 2.2 web Process (SvelteKit SSR)
 
 **Managed by:** supervisord (within the unified container)
-**Purpose:** FastAPI application serving both the web UI and the internal API.
+**Purpose:** Server-side-rendered web UI. The only public HTTP listener.
+
+- **Svelte 5 + SvelteKit 2** with `adapter-node`; compiled at Docker build time into a self-contained bundle (`/app/web`) executed by the bare `node` binary — no npm or `node_modules` at runtime.
+- Every page is rendered on the server; forms are native HTML form posts to SvelteKit actions (progressively enhanced when JS is available), so the UI works without JavaScript.
+- All data comes from the JSON API on `127.0.0.1:8000` via server-side fetch. The web layer holds no business logic and no database access — the API is the single source of truth.
+- Forwards the browser's `callis_session` cookie to the API and replays the API's `Set-Cookie` responses (login, refresh, logout) back to the browser, so the API also stays the single source of truth for session cookie attributes.
+- Forwards the client address chain (`X-Forwarded-For`) so API rate limiting and audit source IPs see real client addresses.
+- Transparently proxies `/install.sh`, `/callis.sh`, and `/health` to the API so the CLI installer flow keeps its historical URLs.
+- Applies a strict CSP (`'self'` everywhere, hash-allowlisted hydration scripts) plus the standard security headers, and performs a host-based CSRF origin check on all form posts.
+- Auth guard errors from the API (`authentication_required`, `totp_enrollment_required`, `setup_required`) are translated into redirects to `/login`, `/totp/setup`, and `/setup`.
+
+### 2.3 api Process
+
+**Managed by:** supervisord (within the unified container)
+**Purpose:** FastAPI application serving the versioned JSON API (`/api/v1`) and the internal sshd-facing API. Single source of truth for all data, validation, authorization, and audit logging.
 
 The application is split across two listeners:
-- **Port 8080** — public-facing web UI and all authenticated routes
+- **Port 8000** — JSON API consumed exclusively by the SSR web server over loopback. Not published outside the container.
 - **Port 8081** — internal-only listener. Serves `/internal/keys/{username}`, `/internal/resolve/{username}/{tag}`, and `/internal/hosts/{username}`. The Uvicorn process binds to `0.0.0.0`; isolation is enforced by not exposing this port in `docker-compose.yml` (Docker network boundary) combined with the mandatory `X-Internal-Secret` header for every request. This port MUST NOT be published in `docker-compose.yml`.
 
 **Framework stack:**
 - FastAPI — routing, dependency injection, request handling
-- Jinja2 — server-side HTML templating
-- htmx (CDN) — partial page updates without a frontend build step
-- Pico CSS (CDN) — classless styling
+- Pydantic — typed request/response schemas (`schemas.py`) for every endpoint
 - SQLAlchemy — ORM, supports SQLite (default) and PostgreSQL
 - `PyJWT` — JWT creation and validation
 - `bcrypt` — password hashing
@@ -75,58 +91,62 @@ The application is split across two listeners:
 - `slowapi` — rate limiting
 - `uv` — dependency management (locked via `uv.lock`, installed with `--frozen`)
 
+The api process also runs a **session tracker** (started in the FastAPI lifespan): it tails the sshd log (`/var/log/callis/auth.log`, the same file the fail2ban sidecar reads) and records accepted connections and disconnects as `SshSession` rows with `session_opened`/`session_closed` audit entries. The tracker persists its read position so an API-only restart resumes where it stopped, and the startup sweep only closes records whose connection is no longer established. In the unified container, admins can terminate a session from the web UI — the tracker locates the per-connection sshd child via `/proc/net/tcp{,6}` socket-inode matching and signals it (api and sshd share a PID namespace).
+
 **Directory layout:**
-```
+
+```text
 api/
 ├── Dockerfile               # Standalone API image (for split deploys)
 ├── pyproject.toml
 ├── uv.lock                  # Locked dependency versions (installed with --frozen)
-├── main.py                  # App factory, mounts routers, middleware
-├── core.py                  # Config, DB session, security utilities
+├── main.py                  # App factory, mounts /api/v1 routers, middleware
+├── core.py                  # Config, DB session, security utilities, effective-host resolution
 ├── models.py                # All SQLAlchemy models
+├── schemas.py               # Pydantic response/request schemas for /api/v1
 ├── dependencies.py          # get_current_user, require_role, require_totp
-├── templating.py            # Shared Jinja2Templates instance (filters registered once)
+├── session_tracker.py       # Tails the sshd log into SshSession rows; /proc-based termination
 ├── middleware/
 │   ├── security_headers.py  # CSP, HSTS, X-Frame-Options, etc.
 │   ├── session.py           # JWT cookie validation, session-expiry auditing
-│   ├── setup_guard.py       # Redirects to /setup when DB has no users
-│   └── totp_guard.py        # Enforces TOTP enrollment before access
+│   ├── setup_guard.py       # 409 setup_required when DB has no users
+│   └── totp_guard.py        # 403 totp_enrollment_required before enrollment
 ├── routers/
-│   ├── auth.py              # /login, /logout, /totp/setup, /totp/verify
-│   ├── setup.py             # /setup — first-run setup wizard
-│   ├── users.py             # /users — CRUD, roles, key management
-│   ├── hosts.py             # /hosts — jump target management
-│   ├── audit.py             # /audit — log viewer
-│   ├── settings.py          # /settings — runtime configuration
+│   ├── auth.py              # /api/v1/auth — login, logout, me, TOTP enrollment
+│   ├── setup.py             # /api/v1/setup — first-run wizard endpoints
+│   ├── users.py             # /api/v1/users — CRUD, roles, key management, recovery codes
+│   ├── hosts.py             # /api/v1/hosts — jump targets, assignments, deploy key
+│   ├── groups.py            # /api/v1/groups — host groups (bulk access assignment)
+│   ├── sessions.py          # /api/v1/sessions — live SSH session view + admin terminate
+│   ├── audit.py             # /api/v1/audit — filterable, paginated log
+│   ├── settings.py          # /api/v1/settings — runtime configuration
+│   ├── dashboard.py         # /api/v1/dashboard — stats + recent activity
+│   ├── meta.py              # /api/v1/meta — public instance metadata
 │   └── internal.py          # /internal/keys, /resolve, /hosts — sshd endpoints
 ├── static/
-│   ├── app.js               # Dialogs, copy/download, theme toggle, htmx helpers
-│   ├── theme.js             # Pre-render theme init (prevents FOUC)
-│   ├── style.css            # Custom styles (extends Pico CSS)
 │   └── callis.sh            # The Callis CLI (served at /callis.sh)
-├── tests/                   # Pytest suite (run with `uv run pytest`)
-└── templates/
-    ├── base.html            # Nav, CDN links, flash messages
-    ├── login.html
-    ├── setup.html           # First-run setup wizard (admin account)
-    ├── totp_setup.html      # TOTP enrollment (wizard + regular flows, parameterized)
-    ├── dashboard.html
-    ├── users.html
-    ├── user_detail.html
-    ├── hosts.html
-    ├── audit.html
-    ├── settings.html
-    ├── 500.html             # Generic error page
-    └── partials/            # htmx fragment responses
-        ├── user_row.html
-        ├── key_list.html
-        ├── host_row.html
-        ├── generated_key.html
-        ├── ssh_config.html
-        └── audit_rows.html
+└── tests/                   # Pytest suite (run with `uv run pytest`)
+
+frontend/
+├── package.json             # Pinned toolchain; package-lock.json committed
+├── svelte.config.js         # adapter-node + strict CSP configuration
+├── src/
+│   ├── hooks.server.ts      # Security headers, CSRF origin check, API proxy
+│   ├── lib/
+│   │   ├── server/api.ts    # Server-side API client (cookie + XFF forwarding)
+│   │   ├── types.ts         # Typed mirror of api/schemas.py
+│   │   ├── format.ts        # Deterministic UTC date formatting
+│   │   ├── actions/         # Svelte actions (confirm-before-submit)
+│   │   ├── components/      # Dialog, CopyButton, ThemeToggle, TotpEnroll, …
+│   │   └── styles/app.css   # App styles (extends bundled Pico CSS)
+│   └── routes/              # One directory per page (SSR load + form actions)
+│       ├── login/  setup/  setup/totp/  totp/setup/
+│       ├── dashboard/  users/  users/[id]/  hosts/  audit/  settings/
+│       └── logout/
+└── static/                  # theme.js (FOUC-free theme init), favicon
 ```
 
-### 2.3 fail2ban Sidecar (Optional)
+### 2.4 fail2ban Sidecar (Optional)
 
 **Base image:** `crazymax/fail2ban:1.1.0`
 **Purpose:** Watches sshd logs and bans IPs that repeatedly fail authentication.
@@ -178,6 +198,36 @@ UserHostAssignment
 ├── user_id (FK → User)
 └── host_id (FK → Host)
 
+HostGroup
+├── id (UUID)
+├── name (unique)
+├── description
+└── created_at
+    (membership via HostGroupHosts [group_id, host_id] and
+     HostGroupUsers [group_id, user_id]; a user's effective host access
+     is direct assignments ∪ group memberships — core.get_effective_hosts,
+     the single source of truth used by the internal API and the web UI)
+
+RecoveryCode
+├── id (UUID)
+├── user_id (FK → User)
+├── code_digest (HMAC-SHA256, keyed by SECRET_KEY)
+├── used_at (null = unused)
+└── created_at
+
+SshSession
+├── id (UUID)
+├── user_id (FK → User, SET NULL on user deletion)
+├── username (denormalized)
+├── source_ip / source_port
+├── key_fingerprint
+├── started_at / ended_at
+└── close_reason (disconnected | terminated | server_restart)
+
+SessionTrackerState (single row)
+├── log_inode / log_offset (BigInteger — resume point in the sshd log)
+└── updated_at
+
 AuditLog
 ├── id (UUID)
 ├── timestamp
@@ -195,28 +245,31 @@ AuditLog
 
 ### First-run setup (no users in DB)
 ```
-Browser → api:8080
-  → SecurityHeadersMiddleware
-  → SessionMiddleware (no cookie → user = None)
-  → SetupGuardMiddleware (zero users → redirect /setup)
-  → GET /setup → setup wizard form
-  → POST /setup → create admin + session cookie → redirect /setup/totp
-  → POST /setup/totp → verify TOTP → mark enrolled → redirect /dashboard
+Browser → web:8080 (SvelteKit SSR)
+  → layout load: GET api:8000/api/v1/meta → setup_needed: true → redirect /setup
+  → GET /setup → SSR setup wizard form
+  → POST /setup (form action) → POST api:8000/api/v1/setup
+      → create admin + Set-Cookie replayed to browser → redirect /setup/totp
+  → POST /setup/totp (form action) → POST api:8000/api/v1/setup/totp/verify
+      → verify TOTP → mark enrolled → redirect /dashboard
+(Server-side, SetupGuardMiddleware rejects every other API endpoint with
+409 setup_required until an admin account exists.)
 ```
 
 ### Web UI request (authenticated page)
 ```
 Browser
   → Caddy (TLS, optional)
-  → api:8080
-  → SecurityHeadersMiddleware (attach headers)
-  → SessionMiddleware (validate JWT cookie → attach user to request.state)
-  → SetupGuardMiddleware (users exist → pass through, cached)
-  → TOTPGuardMiddleware (if user.totp_enrolled is False → redirect /totp/setup)
-  → RateLimitMiddleware (slowapi, IP-keyed)
-  → Route handler
-  → require_role dependency (if applicable)
-  → Jinja2 template render
+  → web:8080 (SvelteKit SSR)
+  → hooks.server.ts (CSRF origin check, security headers)
+  → page load → server-side fetch api:8000/api/v1/… (cookie + XFF forwarded)
+      → SecurityHeadersMiddleware (attach headers)
+      → SessionMiddleware (validate JWT cookie → attach user to request.state)
+      → SetupGuardMiddleware (users exist → pass through, cached)
+      → TOTPGuardMiddleware (not enrolled → 403 totp_enrollment_required)
+      → RateLimitMiddleware (slowapi, IP-keyed via forwarded client address)
+      → Route handler + require_role dependency → Pydantic JSON response
+  → SSR render (session-refresh Set-Cookie replayed to browser)
   → HTML response
 ```
 
@@ -248,7 +301,7 @@ callis <tag>
 ### Key revocation
 ```
 Admin clicks "Revoke" in web UI
-  → POST /users/{id}/keys/{key_id}/revoke
+  → form action → POST api:8000/api/v1/users/{id}/keys/{key_id}/revoke
   → SSHKey.is_active = False in database
   → AuditLog entry written
   → Next SSH auth attempt: AuthorizedKeysCommand returns empty
@@ -261,7 +314,7 @@ Admin clicks "Revoke" in web UI
 
 The internal API (`api:8081`) MUST NOT be exposed in `docker-compose.yml`. It is only reachable from within the Docker network — specifically from the sshd container making HTTP requests to `http://api:8081`. All internal API requests require a valid `X-Internal-Secret` header (HMAC-SHA256 derived from `SECRET_KEY`) as defense-in-depth.
 
-The public web UI port (`api:8080`) is exposed to the host and optionally fronted by Caddy or an external reverse proxy.
+The JSON API (`api:8000`) binds to loopback inside the container and is reachable only through the SSR web server. The public web UI port (`web:8080`) is exposed to the host and optionally fronted by Caddy or an external reverse proxy.
 
 The SSH port (`sshd:2222`) is exposed directly to the host. It does not pass through the API or Caddy.
 

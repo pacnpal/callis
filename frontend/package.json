@@ -1,0 +1,27 @@
+{
+  "name": "callis-frontend",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "SvelteKit SSR frontend for the Callis SSH bastion. Compiled in a Docker build stage; only the built output runs in production.",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "sync": "svelte-kit sync"
+  },
+  "devDependencies": {
+    "@picocss/pico": "^2.1.1",
+    "@sveltejs/adapter-node": "^5.5.7",
+    "@sveltejs/kit": "^2.70.1",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "svelte": "^5.56.6",
+    "svelte-check": "^4.7.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

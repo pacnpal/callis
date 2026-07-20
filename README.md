@@ -14,10 +14,12 @@ Callis is a self-hosted SSH jump server (bastion host) with a web UI. It provide
 ## Features
 
 - Hardened OpenSSH jump server (Ed25519 host key; Ed25519 or RSA 4096+ user keys; no passwords, no interactive shell)
-- Web UI built with FastAPI + Jinja2 + htmx — no build step, no Node.js
+- Server-rendered web UI (SvelteKit SSR) backed by a FastAPI JSON API — works without JavaScript, no CDN dependencies
 - Per-user OS accounts with instant key revocation
-- Mandatory TOTP 2FA for all web UI users
+- Mandatory TOTP 2FA for all web UI users, with single-use recovery codes for lost devices
 - Role-based access control (admin, operator, readonly)
+- Host groups — grant access to sets of hosts as a unit
+- Live SSH session view with admin session termination
 - Full audit log of every connection attempt and admin action
 - Fail2ban sidecar for SSH brute force protection
 - Rate limiting on web UI login
@@ -134,9 +136,21 @@ Callis serves plain HTTP on port 8080. TLS termination is handled by your revers
 ```bash
 BASE_URL=https://callis.example.com
 HTTPS_ENABLED=true
+# Required with HTTPS_ENABLED. Set it to the address Callis SEES your reverse
+# proxy connect from — not the proxy's public address. See "Choosing
+# TRUSTED_PROXIES" below; this example fits the recommended Docker-network setup.
+TRUSTED_PROXIES=172.18.0.0/16
 ```
 
 `HTTPS_ENABLED=true` enables HSTS headers and sets the `Secure` flag on session cookies (required when serving over HTTPS).
+
+**Choosing `TRUSTED_PROXIES`.** Only the peer named here may supply `X-Forwarded-For` (the real client IP used for audit logging and login rate limiting); every other client's forwarded headers are ignored. It must be the address Callis *observes the proxy connecting from*, which is usually **not** `127.0.0.1`:
+
+- **Recommended — proxy on the same Docker network, web port not published.** Run your reverse proxy as a service alongside Callis and remove the `8080` port mapping from `docker-compose.yml` so the web UI is reachable *only* through the proxy. Callis then sees the proxy connect from its container address; set `TRUSTED_PROXIES` to that Docker network's subnet (find it with `docker network inspect <network>` → `Subnet`, e.g. `172.18.0.0/16`). This is the only topology where Callis can reliably tell your proxy apart from a direct client.
+- **Host-based proxy (Caddy/Nginx on the host) dialing a published `8080`.** Callis sees these connections from the Docker bridge gateway (e.g. `172.17.0.1`), not `127.0.0.1` — set `TRUSTED_PROXIES` to that gateway. **Caveat:** because the port is published, a client that reaches `8080` directly *also* appears as the gateway, so Callis cannot distinguish it from your proxy. Restrict the published port to the proxy host (firewall it, or bind it to a private interface) or use the Docker-network setup above.
+- **Not sure of the value?** Start Callis, attempt a login through the proxy, and read `source_ip` from the audit log — that is exactly the address to put in `TRUSTED_PROXIES`. (Loopback `127.0.0.1`/`::1` is always trusted, so you only need this when the proxy is a separate host or container — the usual case.)
+
+A wildcard `*` or a catch-all network (`0.0.0.0/0`, `::/0`) is refused at startup, because trusting it would let any client spoof their source IP — forging audit-log entries and bypassing login rate limiting.
 
 **2. Point your reverse proxy at Callis port 8080:**
 
@@ -281,7 +295,7 @@ ssh my-internal-server
 | `MAX_KEYS_PER_USER` | No | `5` | Maximum SSH keys per user |
 | `AUTH_MODE` | No | `local` | Only `local` is implemented today; OIDC support is planned |
 | `HTTPS_ENABLED` | No | `false` | Enable HSTS and Secure cookie flag |
-| `TRUSTED_PROXIES` | No | `*` | Comma-separated proxy IPs/CIDRs allowed to set `X-Forwarded-*` headers (only used when `HTTPS_ENABLED=true`) |
+| `TRUSTED_PROXIES` | When `HTTPS_ENABLED=true` | `*` | Comma-separated proxy IPs/CIDRs allowed to set `X-Forwarded-*` headers. **Required when `HTTPS_ENABLED=true`** — a wildcard `*` or empty value is refused at startup because it lets any client spoof `X-Forwarded-For` (forged audit IPs, rate-limit bypass). Ignored in LAN/HTTP mode. |
 | `DEV_MODE` | No | `false` | Enable development mode features (verbose SQL logging) |
 | `LOG_LEVEL` | No | `info` | Logging level |
 | `TZ` | No | `UTC` | Timezone |

@@ -13,7 +13,7 @@ logger = logging.getLogger("callis")
 
 class SessionMiddleware(BaseHTTPMiddleware):
     # Paths that don't need session loading
-    _SKIP_PATHS = ("/static/", "/health")
+    _SKIP_PATHS = ("/health", "/install.sh", "/callis.sh")
 
     async def dispatch(self, request: Request, call_next) -> Response:
         request.state.user = None
@@ -36,7 +36,12 @@ class SessionMiddleware(BaseHTTPMiddleware):
                             select(User).where(User.id == user_id)
                         )
                         user = result.scalar_one_or_none()
-                        if user and user.is_active:
+                        # Reject tokens whose embedded epoch no longer matches
+                        # the user's current session_epoch (bumped on logout),
+                        # giving stateless JWTs a server-side revocation path.
+                        token_epoch = payload.get("epoch")
+                        epoch_ok = token_epoch == user.session_epoch if user else False
+                        if user and user.is_active and epoch_ok:
                             request.state.user = user
             elif reason == "expired" and payload:
                 # A real session ended (idle timeout or max lifetime).

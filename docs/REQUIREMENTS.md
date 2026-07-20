@@ -49,7 +49,8 @@ The primary deployment target is homelab and small-team infrastructure environme
 ### 2.4 Host Management
 
 - **FR-HOST-01** — Admins MUST be able to define jump targets (hosts) with: label, hostname/IP, port, and description.
-- **FR-HOST-02** — Hosts MUST be assignable to users, restricting which targets each user may jump to. (Group-based assignment is a planned enhancement.)
+- **FR-HOST-02** — Hosts MUST be assignable to users, restricting which targets each user may jump to.
+- **FR-HOST-05** — Admins MUST be able to define host groups (named sets of hosts) and assign users to groups. A user's effective host access is the union of their direct host assignments and the hosts of every group they belong to. The same effective-access resolution MUST be used by the internal API (permitopen enforcement, tag resolution, host listing) and the web UI.
 - **FR-HOST-03** — The web UI MUST display per-host the SSH client config snippet needed to use Callis as a ProxyJump for that host.
 - **FR-HOST-04** — Hosts MAY be deactivated without deletion.
 
@@ -58,7 +59,8 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **FR-AUTH-01** — All web UI routes MUST require an authenticated session. The only unauthenticated routes are `/login`, `/health`, the CLI installer endpoints (`/install.sh`, `/callis.sh`), and `/setup` (which locks itself down permanently once an admin account exists).
 - **FR-AUTH-02** — Authentication MUST use username and password. Passwords MUST be hashed with bcrypt at cost factor ≥ 12.
 - **FR-AUTH-03** — TOTP (RFC 6238) 2FA MUST be mandatory for all users. A user MUST complete TOTP enrollment before accessing any other page.
-- **FR-AUTH-04** — TOTP enrollment MUST present a QR code and manual secret entry on first login. The TOTP secret MUST be stored encrypted in the database. Backup codes are a future enhancement.
+- **FR-AUTH-04** — TOTP enrollment MUST present a QR code and manual secret entry on first login. The TOTP secret MUST be stored encrypted in the database.
+- **FR-AUTH-11** — On TOTP enrollment, a set of 10 single-use recovery codes MUST be issued and shown exactly once. A recovery code MAY be used in place of a TOTP code at login and is invalidated on use. Codes MUST be stored only as keyed digests (HMAC-SHA256 with `SECRET_KEY`), never in plaintext. Users (and admins acting on any user) MUST be able to regenerate the set, which invalidates all previous codes. Issuance and use MUST be audited.
 - **FR-AUTH-05** — Sessions MUST be stored as JWTs in an `httpOnly`, `Secure`, `SameSite=Strict` cookie. JWTs MUST NOT be returned in response bodies or stored in localStorage.
 - **FR-AUTH-06** — Sessions MUST expire after a configurable idle timeout (default: 30 minutes).
 - **FR-AUTH-07** — Sessions MUST have a configurable absolute maximum lifetime regardless of activity (default: 8 hours).
@@ -82,11 +84,21 @@ The primary deployment target is homelab and small-team infrastructure environme
   - Role changed
   - Host added
   - Host deactivated/deleted
+  - Host group created/deleted, and group host/user membership changes
+  - Recovery codes generated; recovery code used at login
+  - SSH session opened/closed; session terminated by an admin
 - **FR-AUDIT-02** — Audit log entries MUST be append-only. No UI action or API call MUST be able to delete or modify audit log entries.
 - **FR-AUDIT-03** — The audit log MUST be viewable in the web UI with filtering by event type, user, and date range.
 - **FR-AUDIT-04** — Audit logs MUST be persisted across container restarts. They are stored in the database, which lives on the persistent `/data` Docker volume.
 
-### 2.7 Deployment
+### 2.7 Session Visibility
+
+- **FR-SESS-01** — Accepted SSH connections and disconnects MUST be tracked from the sshd log into session records (user, source IP/port, key fingerprint, start/end time) with corresponding audit entries. Pre-auth failures are out of scope (fail2ban's domain).
+- **FR-SESS-02** — The web UI MUST show currently active sessions and recently closed sessions.
+- **FR-SESS-03** — Admins MUST be able to terminate an active session from the web UI (unified container only, where api and sshd share a PID namespace). The record MUST be closed and audited only after the owning process is successfully signalled; if the process cannot be located (e.g. split deployment), the record MUST remain open and the admin informed.
+- **FR-SESS-04** — At startup, session records left open by a previous run MUST be closed (reason `server_restart`, audited) unless their connection is verifiably still established; the tracker MUST resume from its persisted log position so sessions accepted while the API was down are reconciled.
+
+### 2.8 Deployment
 
 - **FR-DEPLOY-01** — The full stack MUST be deployable with a single `docker compose up -d` command. No `.env` file is required for basic operation — `SECRET_KEY` is auto-generated and the admin account is created via the web-based setup wizard on first load.
 - **FR-DEPLOY-02** — The stack MUST work with no domain name on a LAN (accessing the UI via IP and port).
@@ -106,14 +118,14 @@ The primary deployment target is homelab and small-team infrastructure environme
 - **NFR-SEC-02** — sshd MUST run with the minimum privilege OpenSSH allows: `PermitRootLogin no`, privilege-separated workers, and root used only for `AuthorizedKeysCommand` (which creates OS user accounts on the fly).
 - **NFR-SEC-03** — The API's internal key-serving endpoint (`/internal/keys/{username}`) MUST be bound to a separate internal port not exposed outside the Docker network. It MUST NOT be accessible via the public-facing web UI port.
 - **NFR-SEC-04** — All HTTP responses MUST include security headers: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Strict-Transport-Security` (when behind TLS).
-- **NFR-SEC-05** — The Content Security Policy MUST disallow inline scripts and restrict script sources to the CDN allowlist (htmx, Pico CSS).
+- **NFR-SEC-05** — The Content Security Policy MUST disallow inline scripts and restrict every source directive to `'self'` (hash-allowlisted framework hydration scripts excepted). There MUST be no CDN dependencies; all assets are bundled and served from the application itself.
 - **NFR-SEC-06** — Stack traces and internal error details MUST NEVER be exposed to the browser. Unexpected errors (5xx) MUST render a generic error page; expected HTTP errors (4xx) MAY include a user-safe detail message.
 - **NFR-SEC-07** — User IDs in URLs MUST use opaque UUIDs, not sequential integers.
 - **NFR-SEC-08** — Fail2ban MUST be included as an optional sidecar (opt-in via Compose profile) that watches sshd logs and bans IPs after 3 failed attempts within 10 minutes. Ban duration: 24 hours first offense, permanent after 3 offenses (recidive).
 
 ### 3.2 Usability
 
-- **NFR-USE-01** — The web UI SHOULD degrade gracefully without JavaScript where practical. Core read-only flows work without JS; admin actions (create user/host) require JS for dialog interaction.
+- **NFR-USE-01** — The web UI is server-side rendered and SHOULD degrade gracefully without JavaScript where practical. All pages render and all forms submit without JS (progressive enhancement); admin actions (create user/host) require JS only for dialog interaction.
 - **NFR-USE-02** — The web UI MUST be accessible on mobile screen sizes.
 - **NFR-USE-03** — The web UI MUST display the SSH client config snippet a user needs to connect through Callis, pre-filled with their username and the configured hostname.
 - **NFR-USE-04** — First-run setup MUST guide the admin through: setting admin password, completing TOTP enrollment, and adding a first host — before the system is considered ready.
@@ -122,8 +134,8 @@ The primary deployment target is homelab and small-team infrastructure environme
 
 - **NFR-MAINT-01** — The Python backend MUST use `uv` for dependency management.
 - **NFR-MAINT-02** — All Python dependencies MUST be pinned in `pyproject.toml` with a locked `uv.lock`.
-- **NFR-MAINT-03** — There MUST be no Node.js, npm, or frontend build step of any kind.
-- **NFR-MAINT-04** — The codebase MUST be structured so that adding a new page requires: one route function, one template file, and entries in the nav — nothing else.
+- **NFR-MAINT-03** — No Node.js toolchain at runtime. The frontend is compiled once in a Docker build stage (`npm ci` against the committed `package-lock.json`, mirroring `uv sync --frozen`); the published image contains only the compiled, self-contained SSR bundle and the bare `node` binary that executes it — no npm, no `node_modules`, no network access at build-output runtime.
+- **NFR-MAINT-04** — The codebase MUST be structured so that adding a new page requires: one JSON endpoint (only if new data is needed — the API is the single source of truth), one SvelteKit route directory (`+page.server.ts` + `+page.svelte`), and a nav entry — nothing else.
 
 ### 3.4 Performance
 

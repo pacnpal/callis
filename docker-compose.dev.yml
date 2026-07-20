@@ -25,6 +25,15 @@ services:
             - uv.lock
         - action: rebuild
           path: ./api/pyproject.toml
+        # The frontend is compiled at image build time; rebuild on change.
+        # (For fast iteration, run `npm run dev` in frontend/ against a
+        # locally running API instead — see docs/DEVELOPMENT.md.)
+        - action: rebuild
+          path: ./frontend
+          ignore:
+            - node_modules/
+            - .svelte-kit/
+            - build/
 
   fail2ban:
     image: crazymax/fail2ban:1.1.0

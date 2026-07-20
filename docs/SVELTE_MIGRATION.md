@@ -1,8 +1,23 @@
 # Callis — Svelte Frontend Migration Plan
 
-Status: **proposed** (not started). This document is the plan of record for a
-future PR that migrates the web UI from server-rendered Jinja2 + htmx to
-Svelte. Nothing in the current codebase depends on it.
+Status: **implemented**. The web UI is now a SvelteKit (Svelte 5) SSR
+application in `frontend/`, backed by the FastAPI JSON API under `/api/v1`.
+
+Two deliberate deviations from the original plan below:
+
+1. **SvelteKit SSR (adapter-node), not a static SPA.** The requirement changed
+   to "SSR where possible": every page is server-rendered and works without
+   JavaScript, which is strictly better than the SPA plan for a security
+   product. The runtime cost is one bare `node` binary executing a
+   self-contained compiled bundle — no npm, no `node_modules`, no Node
+   toolchain in the published image. NFR-MAINT-03 was rewritten accordingly.
+2. **All pages migrated at once, including login/setup/TOTP.** With SSR these
+   pages stay zero-JS server-rendered HTML anyway, so keeping Jinja2 around
+   for them would have meant two template systems for no benefit. The Jinja2
+   templates, htmx, and the CDN allowlist are gone; the CSP is now `'self'`
+   everywhere with hash-allowlisted hydration scripts.
+
+The sections below are retained as the original decision record.
 
 ---
 

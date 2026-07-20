@@ -28,15 +28,21 @@ These are non-negotiable rules enforced in code, not guidelines.
 - TOTP is mandatory. No user may access protected pages until TOTP enrollment is complete. This is enforced via `require_totp_complete` route dependencies and by `TOTPGuardMiddleware`, which redirects authenticated users without enrolled TOTP to `/totp/setup`.
 - After TOTP setup, every login requires password AND TOTP code. There is no "remember this device."
 - Failed login attempts (wrong password or wrong TOTP) return the same error message and take the same time to respond (constant-time comparison). This prevents both user enumeration and timing attacks.
+- A TOTP code is single-use per login: once a code is accepted, the same code (and any earlier time-step) is rejected for that user, so a code observed in transit cannot be replayed within its validity window.
 - Sessions expire after idle timeout (default: 30 minutes) and have an absolute maximum lifetime (default: 8 hours).
+- Sessions can be revoked server-side. Each session JWT embeds the user's `session_epoch`; logging out increments it, so every outstanding token for that user stops validating — logout is a real server-side revocation, not just a client-side cookie delete.
 
 ### 1.4 Authorization
 
 - Role hierarchy: `admin` > `operator` > `readonly`.
 - Role checks use FastAPI dependencies (`require_role("admin")`), applied at the route level — never scattered inline.
 - Users cannot elevate their own role.
-- `readonly` users can only view the audit log.
-- `operator` users can manage hosts assigned to them.
+- The audit log (and the dashboard's recent-activity feed) is **admin-only**.
+- Non-admins see only the hosts assigned to them in the web UI, with other
+  users' assignments stripped — the host inventory and access map are not
+  disclosed to low-privilege accounts. Admins see the full inventory and the
+  assignment map. (The sshd-facing internal API has always filtered by
+  assignment; the web view now matches.)
 - `admin` users have full access.
 - A user can never view another user's key text, only fingerprints and metadata.
 
@@ -59,19 +65,24 @@ Every HTTP response carries:
 
 ```
 Content-Security-Policy: default-src 'self';
-  script-src 'self' https://unpkg.com https://cdn.jsdelivr.net;
-  style-src 'self' https://unpkg.com https://cdn.jsdelivr.net;
+  script-src 'self' 'sha256-…' (hash-allowlisted framework hydration scripts);
+  style-src 'self';
   img-src 'self' data:;
   font-src 'self';
   connect-src 'self';
   frame-ancestors 'none';
+  base-uri 'self';
+  form-action 'self';
 X-Frame-Options: DENY
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
 Strict-Transport-Security: max-age=31536000; includeSubDomains  (when HTTPS)
 ```
 
-Inline scripts are disallowed by CSP. htmx is loaded from a CDN allowlisted in the CSP. No eval, no inline event handlers.
+There are no CDN dependencies: all CSS and JavaScript is compiled into the
+image and served from `'self'`. Inline scripts are disallowed except for
+SvelteKit's own hydration bootstrap, which is allowlisted by content hash at
+render time. No eval, no inline event handlers.
 
 ---
 
@@ -168,15 +179,17 @@ Note on `PermitTTY no` + `ForceCommand /etc/ssh/callis-cmd.sh`: ForceCommand app
 ### Threat: XSS
 
 **Mitigations:**
-- Server-side rendering via Jinja2 — output is auto-escaped
-- Strict CSP — no inline scripts, CDN allowlist only
-- No user-controlled content is rendered unescaped anywhere
+- Server-side rendering via Svelte — all interpolated output is auto-escaped
+- Strict CSP — every source restricted to `'self'`, no CDNs, no inline scripts
+  beyond hash-allowlisted framework hydration
+- No user-controlled content is rendered unescaped anywhere (no `{@html}`)
 
 ### Threat: CSRF
 
 **Mitigations:**
 - `SameSite=Strict` cookies prevent cross-site form submissions from including the session cookie
-- htmx uses standard form submissions — no JSON API that could be hit cross-origin
+- The SSR server rejects any form-encoded POST whose `Origin` host does not match the request `Host` (see `frontend/src/hooks.server.ts`)
+- The JSON API is bound to loopback inside the container and only reachable through the SSR server
 
 ### Threat: SSH host key spoofing
 

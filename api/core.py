@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import io
 import logging
 import os
@@ -16,7 +17,7 @@ from urllib.parse import urlparse
 
 import pyotp
 import qrcode
-from sqlalchemy import select
+from sqlalchemy import delete, func, or_, select, update
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -36,7 +37,17 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from models import AuditAction, AuditLog, Setting
+from models import (
+    AuditAction,
+    AuditLog,
+    Host,
+    RecoveryCode,
+    Setting,
+    User,
+    host_group_hosts,
+    host_group_users,
+    user_host_assignment,
+)
 
 logger = logging.getLogger("callis")
 
@@ -176,6 +187,10 @@ class Settings(BaseSettings):
     TRUSTED_PROXIES: str = "*"
     LOG_LEVEL: str = "info"
     SSH_PORT: int = 2222
+    # Bind address for the JSON API. The SvelteKit SSR server on :8080 is the
+    # public entrypoint; the API itself stays on loopback inside the container.
+    API_HOST: str = "127.0.0.1"
+    API_PORT: int = 8000
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
@@ -199,9 +214,17 @@ def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
+        kwargs: dict[str, Any] = {}
+        if ":memory:" in settings.DATABASE_URL:
+            # A pooled in-memory SQLite would give every connection its own
+            # empty database; share one connection so tests see a single DB.
+            from sqlalchemy.pool import StaticPool
+
+            kwargs["poolclass"] = StaticPool
         _engine = create_async_engine(
             settings.DATABASE_URL,
             echo=settings.DEV_MODE,
+            **kwargs,
         )
     return _engine
 
@@ -257,21 +280,6 @@ RESERVED_USERNAMES = frozenset({
 })
 
 
-def _instance_name() -> str:
-    """Return the current instance name (DB override or default)."""
-    if _db_settings_cache is not None and "instance_name" in _db_settings_cache:
-        return _db_settings_cache["instance_name"]
-    return CONFIGURABLE_SETTINGS["instance_name"]["default"]
-
-
-def register_template_filters(jinja_templates) -> None:
-    """Register custom Jinja2 filters and globals on a Templates instance."""
-    jinja_templates.env.filters["slugify"] = slugify
-    jinja_templates.env.globals["app_version"] = get_app_version()
-    # Callable so it picks up DB changes at render time
-    jinja_templates.env.globals["instance_name"] = _instance_name
-
-
 # ---------------------------------------------------------------------------
 # Rate limiter (shared instance for app and routers)
 # ---------------------------------------------------------------------------
@@ -314,7 +322,7 @@ def _get_session_idle_timeout_seconds() -> int:
     return get_settings().SESSION_IDLE_TIMEOUT
 
 
-def create_jwt(user_id: str) -> str:
+def create_jwt(user_id: str, session_epoch: int = 0) -> str:
     settings = get_settings()
     issued_at = datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(seconds=_get_session_max_lifetime_seconds())
@@ -323,6 +331,11 @@ def create_jwt(user_id: str) -> str:
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
         "last_activity": issued_at.isoformat(),
+        # Session-revocation epoch: the SessionMiddleware rejects the token if
+        # this no longer matches the user's current session_epoch in the DB,
+        # so bumping the user's epoch (e.g. on logout) invalidates all their
+        # outstanding tokens server-side despite the stateless JWT design.
+        "epoch": int(session_epoch),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
@@ -430,8 +443,149 @@ def verify_totp(secret: str, code: str) -> bool:
     return valid_format and matched
 
 
+def totp_matching_step(secret: str, code: str) -> int | None:
+    """Return the absolute time-step index a valid TOTP code matches, else None.
+
+    Mirrors verify_totp's ±1 skew tolerance and constant-time comparison, but
+    returns the matched step index so callers can enforce single-use (replay
+    protection) by rejecting a step that was already consumed.
+    """
+    submitted = code.strip()
+    valid_format = submitted.isdigit() and len(submitted) == 6
+    normalized_code = submitted if valid_format else "000000"
+
+    totp = pyotp.TOTP(secret)
+    now = datetime.now(timezone.utc).timestamp()
+    base_step = int(now // totp.interval)
+    matched_step: int | None = None
+    for step_offset in (-1, 0, 1):
+        expected = totp.at(now + (step_offset * totp.interval))
+        if secrets.compare_digest(expected, normalized_code):
+            matched_step = base_step + step_offset
+
+    return matched_step if valid_format else None
+
+
+async def consume_totp_step(db: AsyncSession, user_id: str, step: int) -> bool:
+    """Atomically claim a TOTP time-step for single-use (durable replay guard).
+
+    Advances ``users.last_totp_step`` to *step* only if it is currently unset or
+    below *step*, in a single UPDATE. Returns True if this call won the claim
+    (accept), or False if the step was already consumed (replay — reject).
+
+    Because the guard lives in the row, single-use holds across process
+    restarts and multiple API workers: concurrent claims of the same step
+    serialize on the row, and only the first UPDATE matches the WHERE clause.
+    """
+    result = await db.execute(
+        update(User)
+        .where(
+            User.id == user_id,
+            or_(User.last_totp_step.is_(None), User.last_totp_step < step),
+        )
+        .values(last_totp_step=step)
+    )
+    return result.rowcount == 1
+
+
 def get_totp_uri(secret: str, username: str) -> str:
     return pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name="Callis")
+
+
+# ---------------------------------------------------------------------------
+# 2FA recovery codes
+# ---------------------------------------------------------------------------
+
+RECOVERY_CODE_COUNT = 10
+# Unambiguous lowercase alphabet (no 0/o/1/l/i): 10 chars ≈ 49 bits of entropy.
+_RECOVERY_CODE_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
+_RECOVERY_CODE_LENGTH = 10
+
+
+def generate_recovery_code() -> str:
+    """Generate one recovery code, formatted as xxxxx-xxxxx."""
+    raw = "".join(secrets.choice(_RECOVERY_CODE_ALPHABET) for _ in range(_RECOVERY_CODE_LENGTH))
+    return f"{raw[:5]}-{raw[5:]}"
+
+
+def normalize_recovery_code(code: str) -> str:
+    """Normalize user input: lowercase, strip whitespace and hyphens."""
+    return code.strip().lower().replace("-", "").replace(" ", "")
+
+
+def hash_recovery_code(code: str) -> str:
+    """HMAC-SHA256 digest of a normalized recovery code, keyed by SECRET_KEY.
+
+    Recovery codes are high-entropy random strings (~49 bits), so a fast
+    keyed hash is appropriate — offline brute force is infeasible without
+    the server key, and the digest column can be indexed for O(1) lookup.
+    Passwords must NOT use this; they use bcrypt.
+    """
+    secret_key = get_settings().SECRET_KEY
+    return hmac.new(
+        secret_key.encode(),
+        f"callis-recovery:{normalize_recovery_code(code)}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def looks_like_recovery_code(code: str) -> bool:
+    """True if the submitted 2FA value has recovery-code shape (vs 6-digit TOTP).
+
+    Length alone distinguishes the formats: recovery codes normalize to 10
+    characters, TOTP codes are 6 digits. All-digit inputs of length 10 must
+    still qualify — the generation alphabet contains digits, so an issued
+    code can (rarely) be entirely numeric.
+    """
+    return len(normalize_recovery_code(code)) == _RECOVERY_CODE_LENGTH
+
+
+async def issue_recovery_codes(db: AsyncSession, user_id: str) -> list[str]:
+    """Replace all of a user's recovery codes with a fresh set.
+
+    Returns the plaintext codes — the only time they are ever available.
+    Does not commit; the caller owns the transaction.
+    """
+    await db.execute(delete(RecoveryCode).where(RecoveryCode.user_id == user_id))
+    codes = [generate_recovery_code() for _ in range(RECOVERY_CODE_COUNT)]
+    for code in codes:
+        db.add(RecoveryCode(user_id=user_id, code_digest=hash_recovery_code(code)))
+    await db.flush()
+    return codes
+
+
+async def consume_recovery_code(db: AsyncSession, user_id: str, submitted: str) -> bool:
+    """Mark a matching unused recovery code as used. Returns True on success.
+
+    Single-use is enforced atomically: the conditional UPDATE re-evaluates
+    ``used_at IS NULL`` at commit visibility, so two concurrent logins with
+    the same code cannot both succeed on PostgreSQL (SQLite is single-writer
+    and safe either way).
+
+    Does not commit; the caller owns the transaction.
+    """
+    digest = hash_recovery_code(submitted)
+    result = await db.execute(
+        update(RecoveryCode)
+        .where(
+            RecoveryCode.user_id == user_id,
+            RecoveryCode.code_digest == digest,
+            RecoveryCode.used_at.is_(None),
+        )
+        .values(used_at=datetime.now(timezone.utc))
+    )
+    return result.rowcount == 1
+
+
+async def unused_recovery_code_count(db: AsyncSession, user_id: str) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(RecoveryCode)
+        .where(RecoveryCode.user_id == user_id, RecoveryCode.used_at.is_(None))
+    )
+    return result.scalar()
+
+
 
 
 def totp_qr_b64(secret: str, username: str) -> str:
@@ -761,6 +915,39 @@ def get_server_deploy_public_key() -> str:
         logger.info("Generated Callis server deploy key and saved to %s", priv_path)
         _deploy_public_key_cache = public_key_text
         return public_key_text
+
+
+# ---------------------------------------------------------------------------
+# Effective host access (direct assignments ∪ group memberships)
+# ---------------------------------------------------------------------------
+
+async def get_effective_hosts(db: AsyncSession, user_id: str) -> list[Host]:
+    """Active hosts a user may reach: direct assignments plus host groups.
+
+    This is the single source of truth for host access — used by the
+    internal API (permitopen construction, tag resolution, and host
+    listing) and the web UI, so they can never disagree.
+    """
+    direct_ids = select(user_host_assignment.c.host_id).where(
+        user_host_assignment.c.user_id == user_id
+    )
+    group_ids = (
+        select(host_group_hosts.c.host_id)
+        .join(
+            host_group_users,
+            host_group_users.c.group_id == host_group_hosts.c.group_id,
+        )
+        .where(host_group_users.c.user_id == user_id)
+    )
+    result = await db.execute(
+        select(Host)
+        .where(
+            Host.is_active == True,  # noqa: E712
+            Host.id.in_(direct_ids.union(group_ids)),
+        )
+        .order_by(Host.label)
+    )
+    return result.scalars().all()
 
 
 # ---------------------------------------------------------------------------

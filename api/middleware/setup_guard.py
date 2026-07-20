@@ -1,17 +1,23 @@
 from sqlalchemy import func, select
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import JSONResponse, Response
 
 from core import get_session_factory
 from models import User
 
-_SETUP_EXEMPT_PATHS = {"/setup", "/install.sh", "/callis.sh"}
-_SETUP_EXEMPT_PREFIXES = ("/static/", "/health")
+_SETUP_EXEMPT_PATHS = {"/install.sh", "/callis.sh", "/health"}
+_SETUP_EXEMPT_PREFIXES = ("/api/v1/setup", "/api/v1/meta")
 
 
 class SetupGuardMiddleware(BaseHTTPMiddleware):
-    """Redirect all requests to /setup when the database has no users."""
+    """Reject all requests with a setup-required error when the DB has no users.
+
+    The SSR frontend reads `setup_needed` from /api/v1/meta (exempt below) and
+    redirects browsers to the /setup wizard; this middleware is the server-side
+    enforcement layer that keeps every other endpoint closed until an admin
+    account exists.
+    """
 
     _setup_complete = False
 
@@ -32,7 +38,7 @@ class SetupGuardMiddleware(BaseHTTPMiddleware):
             count = result.scalar()
 
         if count == 0:
-            return RedirectResponse(url="/setup", status_code=303)
+            return JSONResponse({"detail": "setup_required"}, status_code=409)
 
         # Users exist — cache this for the lifetime of the process
         SetupGuardMiddleware._setup_complete = True

@@ -12,7 +12,8 @@ ROLE_HIERARCHY = {
 async def get_current_user(request: Request) -> User:
     user = getattr(request.state, "user", None)
     if user is None:
-        raise HTTPException(status_code=303, headers={"Location": "/login"})
+        # JSON API: the SSR frontend translates this into a redirect to /login.
+        raise HTTPException(status_code=401, detail="authentication_required")
     return user
 
 
@@ -20,7 +21,8 @@ async def require_totp_complete(
     user: User = Depends(get_current_user),
 ) -> User:
     if not user.totp_enrolled:
-        raise HTTPException(status_code=303, headers={"Location": "/totp/setup"})
+        # JSON API: the SSR frontend translates this into a redirect to /totp/setup.
+        raise HTTPException(status_code=403, detail="totp_enrollment_required")
     return user
 
 

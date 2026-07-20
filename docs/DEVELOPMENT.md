@@ -7,6 +7,7 @@
 - Docker + Docker Compose
 - Python 3.12+
 - `uv` — install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- Node.js 20+ and npm (frontend development only — production images compile the frontend in a Docker build stage)
 
 ### Running the full stack locally
 
@@ -30,20 +31,30 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -w
 
 How it works:
 - **File sync + restart**: Changes to files in `api/` are synced into the container and the service restarts automatically.
-- **Rebuild trigger**: Changes to `api/pyproject.toml` (new dependencies) trigger a full container rebuild.
+- **Rebuild trigger**: Changes to `api/pyproject.toml` (new dependencies) or anything under `frontend/` trigger a full container rebuild (the frontend is compiled at image build time).
 - Files like `__pycache__/`, `*.pyc`, and `uv.lock` are excluded from sync.
 
 This gives you a tight edit-save-refresh loop without leaving Docker. The full stack (API + sshd) runs exactly as it would in production.
 
-### Running the API outside Docker (for faster iteration)
+### Running the stack outside Docker (for faster iteration)
+
+Run the JSON API and the SvelteKit dev server side by side:
 
 ```bash
+# Terminal 1 — the API (binds 127.0.0.1:8000 by default)
 cd api
 uv sync
-uv run uvicorn main:app --reload --port 8080
+uv run uvicorn main:app --reload --port 8000
+
+# Terminal 2 — the SSR frontend with hot module reload
+cd frontend
+npm ci
+npm run dev        # http://localhost:5173, talks to the API on :8000
 ```
 
-The sshd container still needs to be running via Docker Compose for the full SSH flow to work.
+`CALLIS_API_ORIGIN` (default `http://127.0.0.1:8000`) points the frontend at
+the API. The sshd container still needs to be running via Docker Compose for
+the full SSH flow to work.
 
 ---
 
@@ -51,16 +62,21 @@ The sshd container still needs to be running via Docker Compose for the full SSH
 
 ### Adding a new page
 
-1. Add a route function to the appropriate router in `routers/`
-2. Create a template in `templates/`
-3. Add a nav link to `templates/base.html`
-4. That's it. No build step, no registration, no imports beyond the router.
+1. If the page needs new data, add a JSON endpoint to the appropriate router in
+   `api/routers/` with a Pydantic schema in `api/schemas.py` — the API is the
+   single source of truth; the frontend never computes data itself.
+2. Create a route directory in `frontend/src/routes/<page>/` with
+   `+page.server.ts` (server `load` calling the API via `$lib/server/api`, plus
+   form actions for any mutations) and `+page.svelte` (the markup).
+3. Add a nav link in `frontend/src/routes/+layout.svelte`.
+4. That's it — no manual registration; SvelteKit's filesystem router picks it up.
 
-### Adding a new htmx partial
+### Form actions and mutations
 
-1. Add a route that checks `request.headers.get("HX-Request")` and returns a `TemplateResponse` with a partial template
-2. Create the partial template in `templates/partials/`
-3. Wire the `hx-get` / `hx-post` / `hx-target` attributes in the parent template
+Mutations are plain HTML form posts to SvelteKit actions (progressively
+enhanced with `use:enhance`), which call the API server-side. Return
+`fail(status, { error })` from an action to surface API validation errors;
+never duplicate validation logic in the frontend.
 
 ### Route protection
 
@@ -135,9 +151,13 @@ Always commit both `pyproject.toml` and `uv.lock`.
 ## 4. Code Style
 
 - Python: follow PEP 8. Use type hints everywhere.
-- Templates: Jinja2, 2-space indent, semantic HTML.
-- No inline styles in templates. All styling via Pico CSS classes or `static/style.css`. CSP `style-src` does not allow `'unsafe-inline'`.
-- No inline JavaScript. Dialog open/close is handled by `static/app.js` using `data-dialog-open` and `data-dialog-close` attributes. All other interactivity via htmx.
+- Frontend: Svelte 5 (runes), TypeScript strict mode, tab indent, semantic HTML.
+  `npm run check` (svelte-check) must pass.
+- No inline styles. All styling via bundled Pico CSS classes or
+  `frontend/src/lib/styles/app.css`. The CSP restricts every source to `'self'`
+  (framework hydration scripts are hash-allowlisted); no CDN assets.
+- Frontend state derives from server data (`load` + form actions); pages must
+  render and submit without JavaScript wherever practical.
 
 ---
 
@@ -154,11 +174,14 @@ parsing/validation, TOTP verification, password hashing, JWT session lifecycle
 settings merging. CI (`.github/workflows/ci.yml`) runs it on every push and PR,
 plus a full Docker image build.
 
-When adding route tests, keep them in `api/tests/`. Every route should have at
-minimum:
-- A test for unauthenticated access (should redirect to login)
+API endpoint tests live in `api/tests/test_api_v1.py` and drive the same JSON
+flow the SSR frontend uses. Every endpoint should have at minimum:
+- A test for unauthenticated access (should return 401)
 - A test for insufficient role (should return 403)
 - A test for the happy path
+
+Frontend type safety is enforced with `npm run check`; CI also compiles the
+production bundle (`npm run build`).
 
 ---
 
