@@ -23,8 +23,24 @@ if ! printf '%s' "$USERNAME" | grep -Eq '^[a-z][a-z0-9_-]{0,31}$'; then
     exit 1
 fi
 
-# Already present — nothing to do.
+# Clear any password-lock marker ('!') so sshd accepts the account; set the
+# field to '*' (no password, not locked). Idempotent. usermod is part of the
+# shadow package (absent on Alpine); fall back to chpasswd -e (BusyBox), then to
+# rewriting /etc/shadow directly.
+_unlock() {
+    if command -v usermod >/dev/null 2>&1; then
+        usermod -p '*' "$1" 2>/dev/null || true
+    elif command -v chpasswd >/dev/null 2>&1; then
+        echo "${1}:*" | chpasswd -e 2>/dev/null || true
+    else
+        sed -i "s/^${1}:!:/${1}:*:/" /etc/shadow 2>/dev/null || true
+    fi
+}
+
+# Already present — ensure it is not left password-locked (e.g. created by an
+# older on-demand path that used a locking useradd/adduser), then done.
 if id "$USERNAME" >/dev/null 2>&1; then
+    _unlock "$USERNAME"
     exit 0
 fi
 
@@ -34,20 +50,10 @@ if command -v useradd >/dev/null 2>&1; then
     # -p '*' → shadow password '*' (no password, but NOT locked) so sshd accepts it.
     useradd --no-create-home --shell "$NOLOGIN_SHELL" -p '*' "$USERNAME" 2>/dev/null || true
 elif command -v adduser >/dev/null 2>&1; then
-    # BusyBox/Alpine adduser creates the account with login disabled; clear any
-    # lock marker afterwards when a tool to do so is available.
+    # BusyBox/Alpine adduser creates the account with login disabled; clear the
+    # lock marker afterwards.
     adduser -D -H -s "$NOLOGIN_SHELL" "$USERNAME" 2>/dev/null || true
-    # Clear the password lock so sshd will accept the account. usermod is part of
-    # the shadow package (absent on Alpine); fall back to chpasswd -e, which
-    # BusyBox provides, to set the field directly to '*' (no password, not locked).
-    if command -v usermod >/dev/null 2>&1; then
-        usermod -p '*' "$USERNAME" 2>/dev/null || true
-    elif command -v chpasswd >/dev/null 2>&1; then
-        echo "${USERNAME}:*" | chpasswd -e 2>/dev/null || true
-    else
-        # Minimal BusyBox may have neither: rewrite the '!' lock marker directly.
-        sed -i "s/^${USERNAME}:!:/${USERNAME}:*:/" /etc/shadow 2>/dev/null || true
-    fi
+    _unlock "$USERNAME"
 fi
 
 # Exit status reflects whether the account now exists.

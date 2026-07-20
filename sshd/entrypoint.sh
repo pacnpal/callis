@@ -75,5 +75,11 @@ SSHD_PID=$!
 trap 'kill "$SSHD_PID" ${SYNC_PID:+"$SYNC_PID"} 2>/dev/null' TERM INT
 _rc=0
 wait "$SSHD_PID" || _rc=$?
+# If the first wait was interrupted by the trap (status >128), wait again so
+# sshd can shut down gracefully before this process (PID 1 in the sidecar) exits
+# and Docker SIGKILLs whatever is left.
+if [ "$_rc" -ge 128 ]; then
+    wait "$SSHD_PID" || _rc=$?
+fi
 [ -n "$SYNC_PID" ] && kill "$SYNC_PID" 2>/dev/null
 exit "$_rc"
