@@ -27,8 +27,16 @@ if [ -n "$KEY_FP" ] && ! printf '%s' "$KEY_FP" | grep -Eq '^[A-Za-z0-9:+/=]{1,12
     KEY_FP=""
 fi
 
-# Fetch authorized keys from internal API first (before creating OS user)
-API_HOST="${CALLIS_API_HOST:-localhost}"
+# Fetch authorized keys from internal API first (before creating OS user).
+# OpenSSH sanitizes the AuthorizedKeysCommand environment, so neither the API
+# host nor the secret is inherited — resolve the host from the file the
+# entrypoint persisted (it names a separate API container in split deployments)
+# before falling back to localhost.
+API_HOST="${CALLIS_API_HOST:-}"
+if [ -z "$API_HOST" ] && [ -r /run/callis/api_host ]; then
+    API_HOST=$(cat /run/callis/api_host 2>/dev/null)
+fi
+API_HOST="${API_HOST:-localhost}"
 INTERNAL_SECRET="${CALLIS_INTERNAL_SECRET:-}"
 # OpenSSH runs AuthorizedKeysCommand with a sanitized environment, so the
 # CALLIS_INTERNAL_SECRET exported by entrypoint.sh does not reach this script.

@@ -11,15 +11,18 @@ if [ -n "${SECRET_KEY:-}" ] && [ -z "${CALLIS_INTERNAL_SECRET:-}" ]; then
     export CALLIS_INTERNAL_SECRET
 fi
 
-# Persist the internal secret to a root-only file. OpenSSH runs
+# Persist the internal secret and API host to files. OpenSSH runs
 # AuthorizedKeysCommand (and everything sshd spawns) with a sanitized
 # environment, so auth-keys.sh and user-sync.sh cannot rely on inheriting
-# CALLIS_INTERNAL_SECRET — they read it from here. This works in both the
-# unified image and a standalone sshd sidecar (which may not mount /data).
+# CALLIS_INTERNAL_SECRET / CALLIS_API_HOST — they read them from here. This
+# works in both the unified image and a standalone sshd sidecar (which may not
+# mount /data, and where CALLIS_API_HOST names a separate API container). The
+# secret is root-only; the host is not sensitive.
+mkdir -p /run/callis
 if [ -n "${CALLIS_INTERNAL_SECRET:-}" ]; then
-    mkdir -p /run/callis
     (umask 077; printf '%s' "$CALLIS_INTERNAL_SECRET" > /run/callis/internal_secret)
 fi
+printf '%s' "${CALLIS_API_HOST:-localhost}" > /run/callis/api_host
 
 HOST_KEY="/etc/ssh/host_keys/ssh_host_ed25519_key"
 
