@@ -11,7 +11,7 @@ COPY frontend/ .
 RUN npm run build && printf '{"type":"module"}\n' > build/package.json
 
 # --- Stage 2: runtime ---
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
