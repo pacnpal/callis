@@ -26,7 +26,8 @@
 	});
 
 	function sshConfigBlock(host: Host): string {
-		return `Host ${host.alias}\n    HostName ${host.hostname}\n    Port ${host.port}\n    ProxyJump ${me.username}@${meta.ssh_host}:${meta.ssh_port}`;
+		const userLine = host.username ? `\n    User ${host.username}` : '';
+		return `Host ${host.alias}\n    HostName ${host.hostname}\n    Port ${host.port}${userLine}\n    ProxyJump ${me.username}@${meta.ssh_host}:${meta.ssh_port}`;
 	}
 
 	function assignableUsers(host: Host) {
@@ -113,6 +114,21 @@
 				max="65535"
 			/>
 
+			<label for="username">Login Username</label>
+			<input
+				type="text"
+				id="username"
+				name="username"
+				maxlength="32"
+				placeholder="Optional — e.g. ubuntu"
+				value={(form && 'values' in form && form.values?.username) || ''}
+				aria-describedby="host_username_help"
+			/>
+			<p id="host_username_help" class="helper-text">
+				The account to log in as on this host. Added as the <code>User</code> line in the
+				generated SSH config. Leave blank to use your local username.
+			</p>
+
 			<label for="description">Description</label>
 			<textarea
 				id="description"
@@ -135,6 +151,7 @@
 				<th>Alias</th>
 				<th>Hostname</th>
 				<th>Port</th>
+				<th>User</th>
 				<th>Status</th>
 				<th>Assigned Users</th>
 				<th>SSH Config</th>
@@ -150,6 +167,7 @@
 					<td class="alias-col">{host.alias}</td>
 					<td><code>{host.hostname}</code></td>
 					<td>{host.port}</td>
+					<td>{host.username ?? '—'}</td>
 					<td>
 						{#if host.is_active}
 							<span class="badge badge-active">Active</span>

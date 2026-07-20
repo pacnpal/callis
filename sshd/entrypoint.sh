@@ -11,6 +11,19 @@ if [ -n "${SECRET_KEY:-}" ] && [ -z "${CALLIS_INTERNAL_SECRET:-}" ]; then
     export CALLIS_INTERNAL_SECRET
 fi
 
+# Persist the internal secret and API host to files. OpenSSH runs
+# AuthorizedKeysCommand (and everything sshd spawns) with a sanitized
+# environment, so auth-keys.sh and user-sync.sh cannot rely on inheriting
+# CALLIS_INTERNAL_SECRET / CALLIS_API_HOST — they read them from here. This
+# works in both the unified image and a standalone sshd sidecar (which may not
+# mount /data, and where CALLIS_API_HOST names a separate API container). The
+# secret is root-only; the host is not sensitive.
+mkdir -p /run/callis
+if [ -n "${CALLIS_INTERNAL_SECRET:-}" ]; then
+    (umask 077; printf '%s' "$CALLIS_INTERNAL_SECRET" > /run/callis/internal_secret)
+fi
+printf '%s' "${CALLIS_API_HOST:-localhost}" > /run/callis/api_host
+
 HOST_KEY="/etc/ssh/host_keys/ssh_host_ed25519_key"
 
 # Generate Ed25519 host key if not present
@@ -33,4 +46,40 @@ mkdir -p /var/log
 
 echo "Starting sshd..."
 SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/auth.log}"
-exec /usr/sbin/sshd -D -E "$SSHD_LOG"
+
+# Start the OS account reconciler as a child of this shell, then run sshd in the
+# foreground under a signal trap. It pre-creates accounts for users with keys so
+# OpenSSH can look them up on first connection (sshd will not run
+# AuthorizedKeysCommand for a username missing from the OS user database).
+#
+# Binding both to this shell (rather than `exec`-ing sshd and orphaning the
+# reconciler) means the reconciler is terminated whenever sshd stops or is
+# restarted by supervisord — otherwise each restart would orphan the old loop
+# and accumulate duplicate reconcilers.
+SYNC_PID=""
+if [ -x /etc/ssh/user-sync.sh ]; then
+    # Best-effort initial reconciliation (bounded) so existing key-bearing users
+    # are provisioned before sshd accepts connections. Then start the background
+    # reconciler for the steady state and users added later.
+    /etc/ssh/user-sync.sh --once || true
+    /etc/ssh/user-sync.sh &
+    SYNC_PID=$!
+fi
+
+/usr/sbin/sshd -D -E "$SSHD_LOG" &
+SSHD_PID=$!
+
+# Bind the reconciler's lifetime to sshd. `|| _rc=$?` keeps `set -e` from exiting
+# on a non-zero sshd status before cleanup runs (which would orphan the
+# reconciler across supervisord restarts).
+trap 'kill "$SSHD_PID" ${SYNC_PID:+"$SYNC_PID"} 2>/dev/null' TERM INT
+_rc=0
+wait "$SSHD_PID" || _rc=$?
+# If the first wait was interrupted by the trap (status >128), wait again so
+# sshd can shut down gracefully before this process (PID 1 in the sidecar) exits
+# and Docker SIGKILLs whatever is left.
+if [ "$_rc" -ge 128 ]; then
+    wait "$SSHD_PID" || _rc=$?
+fi
+[ -n "$SYNC_PID" ] && kill "$SYNC_PID" 2>/dev/null
+exit "$_rc"

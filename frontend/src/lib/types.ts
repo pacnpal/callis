@@ -38,6 +38,7 @@ export interface Host {
 	alias: string;
 	hostname: string;
 	port: number;
+	username: string | null;
 	description: string | null;
 	is_active: boolean;
 	created_at: string;

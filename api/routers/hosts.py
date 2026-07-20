@@ -19,6 +19,9 @@ from schemas import CreateHostIn, DeployKeyOut, HostOut, host_out
 
 # Hostnames/IPv4 only; IPv6 literals (with colons) not yet supported
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
+# Optional target login username. Kept to a conservative charset so it stays a
+# single safe token on the generated SSH config `User` line.
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 router = APIRouter(prefix="/hosts")
 
@@ -67,6 +70,7 @@ async def host_list(
             alias=slugify(h.label),
             hostname=h.hostname,
             port=h.port,
+            username=h.username,
             description=h.description,
             is_active=h.is_active,
             created_at=h.created_at,
@@ -108,6 +112,17 @@ async def create_host(
     if not 1 <= body.port <= 65535:
         raise HTTPException(status_code=400, detail="Port must be between 1 and 65535")
 
+    # Optional target login username. Empty means "no User line" (client default).
+    username = body.username.strip()
+    if username:
+        if len(username) > 32 or not _USERNAME_RE.match(username):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid username. Use letters, digits, dots, hyphens, and underscores (max 32).",
+            )
+    else:
+        username = None
+
     # Validate that no active host's label already slugifies to the same CLI tag
     new_slug = slugify(label)
     existing_result = await db.execute(select(Host).where(Host.is_active == True))
@@ -125,6 +140,7 @@ async def create_host(
         label=label,
         hostname=hostname,
         port=body.port,
+        username=username,
         description=body.description,
     )
     db.add(new_host)
@@ -137,7 +153,7 @@ async def create_host(
         target_type="host",
         target_id=new_host.id,
         source_ip=request.client.host if request.client else None,
-        detail={"label": label, "hostname": hostname, "port": body.port},
+        detail={"label": label, "hostname": hostname, "port": body.port, "username": username},
     )
 
     # Reload with assignment relationship for a consistent response shape

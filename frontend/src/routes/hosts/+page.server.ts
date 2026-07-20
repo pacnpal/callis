@@ -46,16 +46,17 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		const label = String(form.get('label') ?? '');
 		const hostname = String(form.get('hostname') ?? '');
+		const username = String(form.get('username') ?? '');
 		const description = String(form.get('description') ?? '');
 		const port = Number(form.get('port') ?? 22);
 		const result = await apiAttempt(event, '/api/v1/hosts', {
 			method: 'POST',
-			body: { label, hostname, port: Number.isFinite(port) ? port : 22, description }
+			body: { label, hostname, port: Number.isFinite(port) ? port : 22, username, description }
 		});
 		if (!result.ok) {
 			return fail(result.status, {
 				error: result.detail,
-				values: { label, hostname, port: String(form.get('port') ?? '22'), description }
+				values: { label, hostname, port: String(form.get('port') ?? '22'), username, description }
 			});
 		}
 		return { created: true };

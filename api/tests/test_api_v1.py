@@ -668,3 +668,44 @@ async def test_sessions_endpoints(client):
     assert r.json()["detail"] == "session_process_not_found"
     r = await client.get("/api/v1/sessions")
     assert len(r.json()["active"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_host_username_stored_and_validated(client):
+    await complete_setup(client)
+
+    # Username persisted and echoed back
+    r = await client.post(
+        "/api/v1/hosts",
+        json={"label": "Mac Mini", "hostname": "10.0.0.9", "username": "ubuntu"},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["username"] == "ubuntu"
+
+    # Blank username is stored as null (no User line generated)
+    r = await client.post(
+        "/api/v1/hosts",
+        json={"label": "No User", "hostname": "10.0.0.10", "username": ""},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["username"] is None
+
+    # Omitted username defaults to null
+    r = await client.post(
+        "/api/v1/hosts", json={"label": "Omitted", "hostname": "10.0.0.11"}
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["username"] is None
+
+    # Invalid username (would break the SSH config line) is rejected
+    r = await client.post(
+        "/api/v1/hosts",
+        json={"label": "Bad User", "hostname": "10.0.0.12", "username": "root rm"},
+    )
+    assert r.status_code == 400
+
+    # Listing reflects the stored username
+    hosts = (await client.get("/api/v1/hosts")).json()
+    by_alias = {h["alias"]: h for h in hosts}
+    assert by_alias["mac-mini"]["username"] == "ubuntu"
+    assert by_alias["no-user"]["username"] is None

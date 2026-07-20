@@ -262,6 +262,7 @@ Host callis
     Port 2222
     User <your-callis-username>
     IdentityFile ~/.ssh/your_ed25519_key
+    IdentitiesOnly yes
 
 Host my-internal-server
     HostName 192.168.1.50

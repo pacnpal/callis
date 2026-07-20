@@ -27,9 +27,31 @@ if [ -n "$KEY_FP" ] && ! printf '%s' "$KEY_FP" | grep -Eq '^[A-Za-z0-9:+/=]{1,12
     KEY_FP=""
 fi
 
-# Fetch authorized keys from internal API first (before creating OS user)
-API_HOST="${CALLIS_API_HOST:-localhost}"
+# Fetch authorized keys from internal API first (before creating OS user).
+# OpenSSH sanitizes the AuthorizedKeysCommand environment, so neither the API
+# host nor the secret is inherited — resolve the host from the file the
+# entrypoint persisted (it names a separate API container in split deployments)
+# before falling back to localhost.
+API_HOST="${CALLIS_API_HOST:-}"
+if [ -z "$API_HOST" ] && [ -r /run/callis/api_host ]; then
+    API_HOST=$(cat /run/callis/api_host 2>/dev/null)
+fi
+API_HOST="${API_HOST:-localhost}"
 INTERNAL_SECRET="${CALLIS_INTERNAL_SECRET:-}"
+# OpenSSH runs AuthorizedKeysCommand with a sanitized environment, so the
+# CALLIS_INTERNAL_SECRET exported by entrypoint.sh does not reach this script.
+# Fall back to the file the entrypoint persisted, then to deriving the secret
+# from the persisted SECRET_KEY (same HMAC formula as entrypoint.sh). Both files
+# are root-only, and this script runs as the AuthorizedKeysCommandUser (root).
+# Without a fallback, every lookup would be rejected with HTTP 403.
+if [ -z "$INTERNAL_SECRET" ] && [ -r /run/callis/internal_secret ]; then
+    INTERNAL_SECRET=$(cat /run/callis/internal_secret 2>/dev/null)
+fi
+if [ -z "$INTERNAL_SECRET" ] && [ -r /data/.secret_key ]; then
+    INTERNAL_SECRET=$(printf 'callis-internal' \
+        | openssl dgst -sha256 -hmac "$(cat /data/.secret_key)" -hex 2>/dev/null \
+        | awk '{print $NF}')
+fi
 KEYS=""
 KEYS_TMP=$(mktemp) || exit 0
 CURL_EXIT=0
@@ -53,17 +75,15 @@ else
 fi
 rm -f "$KEYS_TMP"
 
-# Only create the OS user if the API returned keys (prevents /etc/passwd growth from invalid usernames)
+# Only create the OS user if the API returned keys (prevents /etc/passwd growth from invalid usernames).
+# The reconciler (user-sync.sh) normally pre-creates the account before first
+# connection — this on-demand creation is a fallback for that race. ensure-user.sh
+# creates an UNLOCKED, nologin account (a locked account is refused by sshd).
 if [ -n "$KEYS" ]; then
     if ! id "$USERNAME" >/dev/null 2>&1; then
-        NOLOGIN_SHELL=$(command -v nologin 2>/dev/null || echo /usr/sbin/nologin)
-        if command -v adduser >/dev/null 2>&1 && ! command -v useradd >/dev/null 2>&1; then
-            adduser -D -H -s "$NOLOGIN_SHELL" "$USERNAME" 2>/dev/null || true
-        else
-            useradd --no-create-home --shell "$NOLOGIN_SHELL" "$USERNAME" 2>/dev/null || true
-        fi
+        /etc/ssh/ensure-user.sh "$USERNAME" >/dev/null 2>&1 || true
     fi
-    # Only output keys if the OS user exists (adduser may have failed)
+    # Only output keys if the OS user exists (creation may have failed)
     if id "$USERNAME" >/dev/null 2>&1; then
         printf '%s\n' "$KEYS"
     fi
