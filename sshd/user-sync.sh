@@ -57,14 +57,28 @@ sync_once() {
     return "$_rc"
 }
 
-# Converge quickly at startup (the API may still be coming up), then settle into
-# the steady interval.
-_tries=0
-until sync_once; do
-    _tries=$((_tries + 1))
-    [ "$_tries" -ge 12 ] && break
-    sleep 5
-done
+# Retry sync_once every 5s until it reaches the API or hits the attempt cap.
+# Returns 0 once a reconciliation succeeded, 1 if the cap was exhausted.
+initial_sync() {
+    _tries=0
+    until sync_once; do
+        _tries=$((_tries + 1))
+        [ "$_tries" -ge "${1:-12}" ] && return 1
+        sleep 5
+    done
+    return 0
+}
+
+# --once: a bounded, blocking reconciliation used by the entrypoint to gate sshd
+# startup, so existing key-bearing users are provisioned before connections are
+# accepted. Bounded low so a slow/unavailable API cannot stall sshd for long.
+if [ "${1:-}" = "--once" ]; then
+    initial_sync 3 || true
+    exit 0
+fi
+
+# Background mode: converge at startup, then reconcile on the steady interval.
+initial_sync 12 || true
 while true; do
     sleep "$SYNC_INTERVAL"
     sync_once || true

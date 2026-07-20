@@ -55,6 +55,10 @@ SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/auth.log}"
 # and accumulate duplicate reconcilers.
 SYNC_PID=""
 if [ -x /etc/ssh/user-sync.sh ]; then
+    # Best-effort initial reconciliation (bounded) so existing key-bearing users
+    # are provisioned before sshd accepts connections. Then start the background
+    # reconciler for the steady state and users added later.
+    /etc/ssh/user-sync.sh --once || true
     /etc/ssh/user-sync.sh &
     SYNC_PID=$!
 fi
@@ -62,8 +66,11 @@ fi
 /usr/sbin/sshd -D -E "$SSHD_LOG" &
 SSHD_PID=$!
 
+# Bind the reconciler's lifetime to sshd. `|| _rc=$?` keeps `set -e` from exiting
+# on a non-zero sshd status before cleanup runs (which would orphan the
+# reconciler across supervisord restarts).
 trap 'kill "$SSHD_PID" ${SYNC_PID:+"$SYNC_PID"} 2>/dev/null' TERM INT
-wait "$SSHD_PID"
-_rc=$?
+_rc=0
+wait "$SSHD_PID" || _rc=$?
 [ -n "$SYNC_PID" ] && kill "$SYNC_PID" 2>/dev/null
 exit "$_rc"
