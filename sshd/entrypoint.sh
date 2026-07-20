@@ -41,13 +41,29 @@ fi
 # Ensure log directory exists
 mkdir -p /var/log
 
-# Start the OS account reconciler in the background. It pre-creates accounts for
-# users with keys so OpenSSH can look them up on first connection (it will not
-# run AuthorizedKeysCommand for a username missing from the OS user database).
-if [ -x /etc/ssh/user-sync.sh ]; then
-    /etc/ssh/user-sync.sh &
-fi
-
 echo "Starting sshd..."
 SSHD_LOG="${CALLIS_SSHD_LOG:-/var/log/auth.log}"
-exec /usr/sbin/sshd -D -E "$SSHD_LOG"
+
+# Start the OS account reconciler as a child of this shell, then run sshd in the
+# foreground under a signal trap. It pre-creates accounts for users with keys so
+# OpenSSH can look them up on first connection (sshd will not run
+# AuthorizedKeysCommand for a username missing from the OS user database).
+#
+# Binding both to this shell (rather than `exec`-ing sshd and orphaning the
+# reconciler) means the reconciler is terminated whenever sshd stops or is
+# restarted by supervisord — otherwise each restart would orphan the old loop
+# and accumulate duplicate reconcilers.
+SYNC_PID=""
+if [ -x /etc/ssh/user-sync.sh ]; then
+    /etc/ssh/user-sync.sh &
+    SYNC_PID=$!
+fi
+
+/usr/sbin/sshd -D -E "$SSHD_LOG" &
+SSHD_PID=$!
+
+trap 'kill "$SSHD_PID" ${SYNC_PID:+"$SYNC_PID"} 2>/dev/null' TERM INT
+wait "$SSHD_PID"
+_rc=$?
+[ -n "$SYNC_PID" ] && kill "$SYNC_PID" 2>/dev/null
+exit "$_rc"

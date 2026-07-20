@@ -245,7 +245,7 @@ async def list_hosts(username: str):
 
 
 @router.get("/internal/users")
-async def list_active_usernames():
+async def list_active_usernames() -> PlainTextResponse:
     """List usernames of active users that have at least one active SSH key.
 
     Consumed by the sshd-side account reconciler (user-sync.sh) to pre-create OS
@@ -262,7 +262,7 @@ async def list_active_usernames():
             .where(User.is_active == True, SSHKey.is_active == True)
             .distinct()
         )
-        usernames = [row[0] for row in result.all()]
+        usernames = result.scalars().all()
         if not usernames:
             return PlainTextResponse("", status_code=200)
         return PlainTextResponse("\n".join(usernames) + "\n", status_code=200)

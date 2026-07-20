@@ -37,8 +37,16 @@ elif command -v adduser >/dev/null 2>&1; then
     # BusyBox/Alpine adduser creates the account with login disabled; clear any
     # lock marker afterwards when a tool to do so is available.
     adduser -D -H -s "$NOLOGIN_SHELL" "$USERNAME" 2>/dev/null || true
+    # Clear the password lock so sshd will accept the account. usermod is part of
+    # the shadow package (absent on Alpine); fall back to chpasswd -e, which
+    # BusyBox provides, to set the field directly to '*' (no password, not locked).
     if command -v usermod >/dev/null 2>&1; then
         usermod -p '*' "$USERNAME" 2>/dev/null || true
+    elif command -v chpasswd >/dev/null 2>&1; then
+        echo "${USERNAME}:*" | chpasswd -e 2>/dev/null || true
+    else
+        # Minimal BusyBox may have neither: rewrite the '!' lock marker directly.
+        sed -i "s/^${USERNAME}:!:/${USERNAME}:*:/" /etc/shadow 2>/dev/null || true
     fi
 fi
 

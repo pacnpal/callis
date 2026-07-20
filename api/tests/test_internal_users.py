@@ -50,13 +50,13 @@ async def _add_user_with_key(username: str, *, user_active: bool = True, key_act
 
 
 @pytest.mark.asyncio
-async def test_list_users_requires_internal_secret(internal_client):
+async def test_list_users_requires_internal_secret(internal_client) -> None:
     r = await internal_client.get("/internal/users")
     assert r.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_list_users_returns_only_active_key_holders(internal_client):
+async def test_list_users_returns_only_active_key_holders(internal_client) -> None:
     await _add_user_with_key("alice")
     await _add_user_with_key("bob", key_active=False)      # inactive key -> excluded
     await _add_user_with_key("carol", user_active=False)   # inactive user -> excluded
@@ -71,7 +71,7 @@ async def test_list_users_returns_only_active_key_holders(internal_client):
 
 
 @pytest.mark.asyncio
-async def test_list_users_empty(internal_client):
+async def test_list_users_empty(internal_client) -> None:
     r = await internal_client.get(
         "/internal/users", headers={"X-Internal-Secret": _internal_secret()}
     )
