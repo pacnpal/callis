@@ -283,14 +283,23 @@ async def _init_db():
 # column name plus the type/constraint clause for the ALTER. create_all() only
 # creates missing tables, never alters existing ones, so these bridge upgrades
 # over an existing database. Keep additive and backward-compatible.
-_USER_COLUMN_MIGRATIONS = (
-    ("session_epoch", "INTEGER NOT NULL DEFAULT 0"),
-    ("last_totp_step", "BIGINT"),
-)
+# Columns added to a table after its original schema, keyed by table name. Each
+# entry is the column name plus the type/constraint clause for the ALTER.
+# create_all() only creates missing tables, never alters existing ones, so these
+# bridge upgrades over an existing database. Keep additive and backward-compatible.
+_COLUMN_MIGRATIONS = {
+    "users": (
+        ("session_epoch", "INTEGER NOT NULL DEFAULT 0"),
+        ("last_totp_step", "BIGINT"),
+    ),
+    "hosts": (
+        ("username", "VARCHAR(32)"),
+    ),
+}
 
 
 async def _apply_light_migrations(conn) -> None:
-    """Idempotently add newer `users` columns; safe under concurrent startup.
+    """Idempotently add newer columns; safe under concurrent startup.
 
     Callis has no migration framework. On PostgreSQL we use ADD COLUMN IF NOT
     EXISTS so two API processes starting at once cannot duplicate-column-crash;
@@ -299,24 +308,25 @@ async def _apply_light_migrations(conn) -> None:
     """
     from sqlalchemy import inspect as _sa_inspect
 
-    def _user_columns(sync_conn):
-        return {c["name"] for c in _sa_inspect(sync_conn).get_columns("users")}
-
-    existing = await conn.run_sync(_user_columns)
     is_postgres = conn.dialect.name == "postgresql"
 
-    for column, type_clause in _USER_COLUMN_MIGRATIONS:
-        if column in existing:
-            continue
-        logger.info("Migrating: adding users.%s column", column)
-        if is_postgres:
-            await conn.exec_driver_sql(
-                f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {column} {type_clause}"
-            )
-        else:
-            await conn.exec_driver_sql(
-                f"ALTER TABLE users ADD COLUMN {column} {type_clause}"
-            )
+    for table, migrations in _COLUMN_MIGRATIONS.items():
+        def _columns(sync_conn, _table=table):
+            return {c["name"] for c in _sa_inspect(sync_conn).get_columns(_table)}
+
+        existing = await conn.run_sync(_columns)
+        for column, type_clause in migrations:
+            if column in existing:
+                continue
+            logger.info("Migrating: adding %s.%s column", table, column)
+            if is_postgres:
+                await conn.exec_driver_sql(
+                    f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {type_clause}"
+                )
+            else:
+                await conn.exec_driver_sql(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {type_clause}"
+                )
 
 
 async def run_servers():

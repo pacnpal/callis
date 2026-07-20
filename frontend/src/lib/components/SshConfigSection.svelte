@@ -15,11 +15,12 @@
 	} = $props();
 
 	const bastionBlock = $derived(
-		`Host callis\n    HostName ${sshHost}\n    Port ${sshPort}\n    User ${username}\n    IdentityFile ~/.ssh/your_ed25519_key`
+		`Host callis\n    HostName ${sshHost}\n    Port ${sshPort}\n    User ${username}\n    IdentityFile ~/.ssh/your_ed25519_key\n    IdentitiesOnly yes`
 	);
 
 	function hostBlock(host: Host): string {
-		return `Host ${host.alias}\n    HostName ${host.hostname}\n    Port ${host.port}\n    ProxyJump callis`;
+		const userLine = host.username ? `\n    User ${host.username}` : '';
+		return `Host ${host.alias}\n    HostName ${host.hostname}\n    Port ${host.port}${userLine}\n    ProxyJump callis`;
 	}
 
 	const fullConfig = $derived(

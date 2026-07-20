@@ -182,6 +182,10 @@ class Host(Base):
     label = Column(String(255), nullable=False)
     hostname = Column(String(255), nullable=False)
     port = Column(Integer, default=22, nullable=False)
+    # Optional login username for this target. Advisory only — surfaced in the
+    # generated SSH config (User line); Callis cannot enforce it (the target's
+    # own sshd decides). NULL/empty means "no User line" (client default).
+    username = Column(String(32), nullable=True)
     description = Column(Text, nullable=True, default="")
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)

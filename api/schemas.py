@@ -104,6 +104,7 @@ class HostOut(BaseModel):
     alias: str
     hostname: str
     port: int
+    username: str | None = None
     description: str | None = None
     is_active: bool
     created_at: datetime
@@ -117,6 +118,7 @@ def host_out(host: Host) -> HostOut:
         alias=slugify(host.label),
         hostname=host.hostname,
         port=host.port,
+        username=host.username,
         description=host.description,
         is_active=host.is_active,
         created_at=host.created_at,
@@ -130,6 +132,7 @@ class CreateHostIn(BaseModel):
     label: str
     hostname: str
     port: int = 22
+    username: str = ""
     description: str = ""
 
 
