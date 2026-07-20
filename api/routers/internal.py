@@ -244,6 +244,30 @@ async def list_hosts(username: str):
         return PlainTextResponse("\n".join(lines) + "\n", status_code=200)
 
 
+@router.get("/internal/users")
+async def list_active_usernames():
+    """List usernames of active users that have at least one active SSH key.
+
+    Consumed by the sshd-side account reconciler (user-sync.sh) to pre-create OS
+    accounts before a user's first SSH connection. OpenSSH will not invoke
+    AuthorizedKeysCommand for a username that does not already resolve to an OS
+    account, so the account must exist up front. Only real, key-bearing users
+    are returned, which bounds /etc/passwd growth to legitimate accounts.
+    """
+    factory = get_session_factory()
+    async with factory() as db:
+        result = await db.execute(
+            select(User.username)
+            .join(SSHKey, SSHKey.user_id == User.id)
+            .where(User.is_active == True, SSHKey.is_active == True)
+            .distinct()
+        )
+        usernames = [row[0] for row in result.all()]
+        if not usernames:
+            return PlainTextResponse("", status_code=200)
+        return PlainTextResponse("\n".join(usernames) + "\n", status_code=200)
+
+
 internal_app.include_router(router)
 
 

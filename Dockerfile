@@ -46,9 +46,11 @@ COPY --from=webbuild /frontend/build /app/web
 COPY sshd/sshd_config /etc/ssh/sshd_config
 COPY sshd/auth-keys.sh /etc/ssh/auth-keys.sh
 COPY sshd/callis-cmd.sh /etc/ssh/callis-cmd.sh
+COPY sshd/ensure-user.sh /etc/ssh/ensure-user.sh
+COPY sshd/user-sync.sh /etc/ssh/user-sync.sh
 COPY sshd/banner.txt /etc/ssh/banner.txt
-RUN chmod 0755 /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh && \
-    chown root:root /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh /etc/ssh/sshd_config
+RUN chmod 0755 /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh /etc/ssh/ensure-user.sh /etc/ssh/user-sync.sh && \
+    chown root:root /etc/ssh/auth-keys.sh /etc/ssh/callis-cmd.sh /etc/ssh/ensure-user.sh /etc/ssh/user-sync.sh /etc/ssh/sshd_config
 
 # --- Supervisor config ---
 COPY supervisord.conf /etc/supervisor/conf.d/callis.conf
